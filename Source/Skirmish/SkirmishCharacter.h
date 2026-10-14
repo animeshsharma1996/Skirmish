@@ -15,6 +15,7 @@ class ASkirmishProjectile;
 struct FInputActionValue;
 class UTextRenderComponent;
 class UMaterialInterface;
+class ASkirmishWeapon;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -23,7 +24,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
  *  Implements a controllable orbiting camera
  */
 UCLASS(config=Game)
-class ASkirmishCharacter : public ACharacter, public IPickupReceiver
+class ASkirmishCharacter : public ACharacter, public IPickupReceiver, public IWeaponHolder
 {
 	GENERATED_BODY()
 
@@ -51,13 +52,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Input")
 	virtual void DoJumpEnd();
 
+	virtual void BeginPlay() override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void ReceivePickup(int32 InPoints, int32 InAmmo) override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
+	virtual void Destroyed() override;
+
+	virtual ASkirmishWeapon* GetCurrentWeapon() const override { return CurrentWeapon; }
 
 	void SetSkinMaterial(UMaterialInterface* NewMaterial);
 	void Heal(int32 Amount);
-	void AddAmmo(int32 Amount);
 	bool IsDead() const { return Health <= 0.f; }
 
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
@@ -86,14 +90,8 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
 	TSubclassOf<ASkirmishProjectile> ProjectileClass;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
-	float FireCooldown = 0.25f;
-
 	UPROPERTY(ReplicatedUsing = OnRep_SkinMaterial)
 	TObjectPtr<UMaterialInterface> SkinMaterial;
-
-	UPROPERTY(ReplicatedUsing = OnRep_Ammo, VisibleAnywhere, Category = "Weapon")
-	int32 Ammo = 10;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Health, VisibleAnywhere, Category = "Health")
 	float Health = 100.f;
@@ -104,7 +102,15 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Projectile")
 	float Damage = 20.f;
 
-	float LastFireTime = -100.f;
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
+	TSubclassOf<ASkirmishWeapon> DefaultWeaponClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
+	FName WeaponSocketName = TEXT("WeaponSocket");
+
+	UPROPERTY(ReplicatedUsing = OnRep_CurrentWeapon, VisibleAnywhere, Category = "Weapon")
+	TObjectPtr<ASkirmishWeapon> CurrentWeapon;
+
 	bool bDeathHandled = false;
 
 	UFUNCTION(Server, Reliable)
@@ -115,15 +121,15 @@ protected:
 
 	UFUNCTION()
 	void OnRep_SkinMaterial();
-	
-	UFUNCTION()
-	void OnRep_Ammo();
 
 	UFUNCTION()
 	void OnRep_Health();
 
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	UFUNCTION()
+	void OnRep_CurrentWeapon();
 
+	void SpawnDefaultWeapon();
+	void AttachWeapon();
 	void ApplySkin();
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
@@ -131,5 +137,6 @@ protected:
 	void UpdateLabel();
 	void HandleDeath();
 
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 };
 

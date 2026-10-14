@@ -24,11 +24,15 @@ protected:
     UPROPERTY(meta = (BindWidget))
     TObjectPtr<UTextBlock> KillFeedText;
 
+    UPROPERTY(meta = (BindWidget))
+    TObjectPtr<UTextBlock> AmmoText;
+
     UPROPERTY(EditDefaultsOnly, Category = "Kill Feed")
     int32 MaxFeedLines = 5;
 
 private:
     void UpdateMatchInfo();
+    void UpdateAmmo();
 
     UFUNCTION()
     void HandleElimination(const FString& KillerName, const FString& VictimName);

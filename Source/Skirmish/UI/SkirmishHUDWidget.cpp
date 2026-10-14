@@ -1,4 +1,6 @@
 #include "SkirmishHUDWidget.h"
+#include "../Weapons/WeaponHolder.h"
+#include "../Weapons/SkirmishWeapon.h"
 #include "Components/TextBlock.h"
 #include "../Core/SkirmishEventSubsystem.h"
 #include "../Core/SkirmishGameState.h"
@@ -86,3 +88,23 @@ void USkirmishHUDWidget::HandleElimination(const FString& KillerName, const FStr
         KillFeedText->SetText(FText::FromString(FString::Join(FeedLines, TEXT("\n"))));
     }
 }
+
+void USkirmishHUDWidget::UpdateAmmo()
+{
+    if (!AmmoText)
+    {
+        return;
+    }
+
+    const IWeaponHolder* WeaponHolder = Cast<IWeaponHolder>(GetOwningPlayerPawn());
+    const ASkirmishWeapon* Weapon = WeaponHolder ? WeaponHolder->GetCurrentWeapon() : nullptr;
+    
+    if (!Weapon)
+    {
+        AmmoText->SetText(FText::GetEmpty());
+        return;
+    }
+
+    AmmoText->SetText(FText::AsNumber(Weapon->GetAmmo()));
+}
+

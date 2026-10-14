@@ -18,7 +18,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "SkirmishGameMode.h"
 #include "Core/SkirmishGameState.h"
-
+#include "Weapons/SkirmishWeapon.h"
 
 ASkirmishCharacter::ASkirmishCharacter()
 {
@@ -63,6 +63,16 @@ ASkirmishCharacter::ASkirmishCharacter()
 	}
 }
 
+void ASkirmishCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	if (HasAuthority())
+	{
+		SpawnDefaultWeapon();
+	}
+}
+
 void ASkirmishCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) 
@@ -86,8 +96,8 @@ void ASkirmishCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ASkirmishCharacter, SkinMaterial);
-	DOREPLIFETIME_CONDITION(ASkirmishCharacter, Ammo, COND_OwnerOnly);
 	DOREPLIFETIME(ASkirmishCharacter, Health);
+	DOREPLIFETIME(ASkirmishCharacter, CurrentWeapon);
 }
 
 void ASkirmishCharacter::Move(const FInputActionValue& Value)
@@ -160,56 +170,56 @@ void ASkirmishCharacter::ApplySkin()
 
 void ASkirmishCharacter::Fire()
 {
-	if (Ammo <= 0)
+	if (!CurrentWeapon)
+	{
+		return;
+	}
+
+	if (CurrentWeapon->GetAmmo() <= 0)
 	{
 		UKismetSystemLibrary::PrintString(this, TEXT("Out of ammo!"), true, false, FLinearColor::Yellow, 1.f);
 		return;
 	}
 
 	ServerFire();
+
 }
 
 void ASkirmishCharacter::ServerFire_Implementation()
 {
-	if (IsDead()) 
+	if (IsDead() || !CurrentWeapon || !ProjectileClass)
 	{
 		return;
 	}
 
 	UWorld* World = GetWorld();
-
 	if (!World)
 	{
 		return;
 	}
 
 	const ASkirmishGameState* SkirmishGameState = World->GetGameState<ASkirmishGameState>();
-
 	if (SkirmishGameState && !SkirmishGameState->CanFire())
 	{
 		return;
 	}
 
-	const float Now = World->GetTimeSeconds();
-
-	if (!ProjectileClass || Ammo <= 0 || Now - LastFireTime < FireCooldown)
+	USceneComponent* Muzzle = CurrentWeapon->GetMuzzle();
+	if (!Muzzle || !CurrentWeapon->CanFire())
 	{
 		return;
 	}
 
-	LastFireTime = Now;
-	Ammo--;
-	UpdateLabel();
-
-	const FVector SpawnLocation = GetActorLocation() + GetActorForwardVector() * 100.f + FVector(0.f, 0.f, 40.f);
+	CurrentWeapon->ConsumeAmmo();
 
 	FActorSpawnParameters Params;
 	Params.Owner = this;
 	Params.Instigator = this;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	ASkirmishProjectile* Projectile = GetWorld()->SpawnActor<ASkirmishProjectile>(ProjectileClass, SpawnLocation, GetActorRotation(), Params);
-	
+	ASkirmishProjectile* Projectile = World->SpawnActor<ASkirmishProjectile>(
+		ProjectileClass, Muzzle->GetComponentLocation(), GetActorRotation(), Params);
+
 	if (Projectile)
 	{
 		Projectile->OnProjectileHit.AddDynamic(this, &ASkirmishCharacter::HandleProjectileHit);
@@ -273,9 +283,9 @@ void ASkirmishCharacter::ReceivePickup(int32 HealthAmount, int32 AmmoAmount)
 		Heal(HealthAmount);
 	}
 
-	if (AmmoAmount > 0)
+	if (AmmoAmount > 0 && CurrentWeapon)
 	{
-		AddAmmo(AmmoAmount);
+		CurrentWeapon->AddAmmo(AmmoAmount);
 	}
 }
 
@@ -290,17 +300,6 @@ void ASkirmishCharacter::Heal(int32 Amount)
 	UpdateLabel();
 }
 
-void ASkirmishCharacter::AddAmmo(int32 Amount)
-{
-	if (!HasAuthority() || IsDead())
-	{
-		return;
-	}
-
-	Ammo += Amount;
-	UpdateLabel();
-}
-
 void ASkirmishCharacter::OnRep_Health()
 {
 	UpdateLabel();
@@ -311,17 +310,45 @@ void ASkirmishCharacter::OnRep_Health()
 	}
 }
 
-void ASkirmishCharacter::OnRep_Ammo()
-{
-	UpdateLabel();
-}
-
 void ASkirmishCharacter::UpdateLabel()
 {
 	if (StatusLabel)
 	{
-		StatusLabel->SetText(FText::FromString(FString::Printf(TEXT("%.0f HP | %d ammo"), Health, Ammo)));
+		StatusLabel->SetText(FText::FromString(FString::Printf(TEXT("%.0f HP"), Health)));
 	}
+}
+
+void ASkirmishCharacter::SpawnDefaultWeapon()
+{
+	UWorld* World = GetWorld();
+	if (!World || !DefaultWeaponClass)
+	{
+		return;
+	}
+
+	FActorSpawnParameters Params;
+	Params.Owner = this;        // ownership chain : Controller → Character → Weapon
+	Params.Instigator = this;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	CurrentWeapon = World->SpawnActor<ASkirmishWeapon>(DefaultWeaponClass, GetActorTransform(), Params);
+	AttachWeapon(); 
+}
+
+void ASkirmishCharacter::OnRep_CurrentWeapon()
+{
+	AttachWeapon();
+}
+
+void ASkirmishCharacter::AttachWeapon()
+{
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	if (!CurrentWeapon || !CharacterMesh)
+	{
+		return;
+	}
+
+	CurrentWeapon->AttachToComponent(CharacterMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponSocketName);
 }
 
 void ASkirmishCharacter::HandleDeath()
@@ -356,3 +383,13 @@ void ASkirmishCharacter::HandleDeath()
 }
 
 
+
+void ASkirmishCharacter::Destroyed()
+{
+	if (HasAuthority() && CurrentWeapon)
+	{
+		CurrentWeapon->Destroy();
+	}
+
+	Super::Destroyed();
+}
