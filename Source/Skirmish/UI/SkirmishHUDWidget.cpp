@@ -1,6 +1,4 @@
 #include "SkirmishHUDWidget.h"
-#include "../Weapons/WeaponHolder.h"
-#include "../Weapons/SkirmishWeapon.h"
 #include "Components/TextBlock.h"
 #include "../Core/SkirmishEventSubsystem.h"
 #include "../Core/SkirmishGameState.h"
@@ -16,13 +14,12 @@ void USkirmishHUDWidget::NativeConstruct()
         return;
     }
 
-    // Subscribe to the event bus (Bind Event to On Elimination)
     if (USkirmishEventSubsystem* Events = World->GetSubsystem<USkirmishEventSubsystem>())
     {
         Events->OnElimination.AddDynamic(this, &USkirmishHUDWidget::HandleElimination);
+        Events->OnLocalAmmoChanged.AddDynamic(this, &USkirmishHUDWidget::HandleAmmoChanged);
     }
 
-    // Refresh the phase and scoreboard 4 times per second
     World->GetTimerManager().SetTimer(RefreshTimer, this, &USkirmishHUDWidget::UpdateMatchInfo, 0.25f, true);
     UpdateMatchInfo();
 }
@@ -39,6 +36,7 @@ void USkirmishHUDWidget::NativeDestruct()
         if (USkirmishEventSubsystem* Events = World->GetSubsystem<USkirmishEventSubsystem>())
         {
             Events->OnElimination.RemoveDynamic(this, &USkirmishHUDWidget::HandleElimination);
+            Events->OnLocalAmmoChanged.RemoveDynamic(this, &USkirmishHUDWidget::HandleAmmoChanged);
         }
     }
 
@@ -89,22 +87,10 @@ void USkirmishHUDWidget::HandleElimination(const FString& KillerName, const FStr
     }
 }
 
-void USkirmishHUDWidget::UpdateAmmo()
+void USkirmishHUDWidget::HandleAmmoChanged(int32 Ammo)
 {
-    if (!AmmoText)
-    {
-        return;
+    if (AmmoText)
+    {   
+        AmmoText->SetText(FText::FromString(TEXT("Ammo : ") + FString::FromInt(Ammo)));
     }
-
-    const IWeaponHolder* WeaponHolder = Cast<IWeaponHolder>(GetOwningPlayerPawn());
-    const ASkirmishWeapon* Weapon = WeaponHolder ? WeaponHolder->GetCurrentWeapon() : nullptr;
-    
-    if (!Weapon)
-    {
-        AmmoText->SetText(FText::GetEmpty());
-        return;
-    }
-
-    AmmoText->SetText(FText::AsNumber(Weapon->GetAmmo()));
 }
-

@@ -37,6 +37,9 @@ private:
     UFUNCTION()
     void HandleElimination(const FString& KillerName, const FString& VictimName);
 
+    UFUNCTION()
+    void HandleAmmoChanged(int32 Ammo);
+
     TArray<FString> FeedLines;
     FTimerHandle RefreshTimer;
 };

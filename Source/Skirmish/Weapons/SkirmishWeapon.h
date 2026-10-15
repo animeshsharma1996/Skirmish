@@ -27,6 +27,8 @@ public:
 
     int32 GetAmmo() const { return Ammo; }
     USceneComponent* GetMuzzle() const { return Muzzle; }
+    float GetTimeBetweenShots() const { return 1.f / FMath::Max(FireRate, 0.1f); }
+    void NotifyAmmoChanged() const;
 
 protected:
     virtual void BeginPlay() override;
@@ -40,11 +42,14 @@ protected:
     UPROPERTY(EditDefaultsOnly, Category = "Weapon")
     int32 MagazineSize = 30;
 
-    UPROPERTY(EditDefaultsOnly, Category = "Weapon")
-    float FireCooldown = 0.15f;
+    UPROPERTY(EditDefaultsOnly, Category = "Weapon", meta = (ClampMin = "0.1"))
+    float FireRate = 8.f;
 
-    UPROPERTY(Replicated, VisibleAnywhere, Category = "Weapon")
+    UPROPERTY(ReplicatedUsing = OnRep_Ammo, VisibleAnywhere, Category = "Weapon")
     int32 Ammo = 0;
+
+	UFUNCTION()
+	void OnRep_Ammo();
 
 private:
     float LastFireTime = -100.f;

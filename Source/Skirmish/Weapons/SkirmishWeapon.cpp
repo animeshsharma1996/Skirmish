@@ -1,4 +1,5 @@
 #include "SkirmishWeapon.h"
+#include "../Core/SkirmishEventSubsystem.h"
 #include "Components/StaticMeshComponent.h"
 #include "Net/UnrealNetwork.h"
 
@@ -38,7 +39,36 @@ void ASkirmishWeapon::BeginPlay()
     if (HasAuthority())
     {
         Ammo = MagazineSize;
+		NotifyAmmoChanged();
     }
+}
+
+void ASkirmishWeapon::OnRep_Ammo()
+{
+	NotifyAmmoChanged();
+}
+
+void ASkirmishWeapon::NotifyAmmoChanged() const
+{
+    const APawn* OwnerPawn = Cast<APawn>(GetOwner());
+
+    if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
+    {
+        return;
+    }
+
+    UWorld* World = GetWorld();
+
+    if (!World)
+    {
+        return;
+    }
+
+    if (USkirmishEventSubsystem* Events = World->GetSubsystem<USkirmishEventSubsystem>())
+    {
+        Events->OnLocalAmmoChanged.Broadcast(Ammo);
+    }
+
 }
 
 bool ASkirmishWeapon::CanFire() const
@@ -50,7 +80,7 @@ bool ASkirmishWeapon::CanFire() const
         return false;
     }
 
-    return Ammo > 0 && World->GetTimeSeconds() - LastFireTime >= FireCooldown;
+    return Ammo > 0 && World->GetTimeSeconds() - LastFireTime >= GetTimeBetweenShots();
 }
 
 void ASkirmishWeapon::ConsumeAmmo()
@@ -64,6 +94,7 @@ void ASkirmishWeapon::ConsumeAmmo()
 
     Ammo = FMath::Max(Ammo - 1, 0);
     LastFireTime = World->GetTimeSeconds();
+    NotifyAmmoChanged();
 }
 
 void ASkirmishWeapon::AddAmmo(int32 Amount)
@@ -74,5 +105,6 @@ void ASkirmishWeapon::AddAmmo(int32 Amount)
     }
 
     Ammo = FMath::Min(Ammo + Amount, MagazineSize);
+    NotifyAmmoChanged();
 }
 

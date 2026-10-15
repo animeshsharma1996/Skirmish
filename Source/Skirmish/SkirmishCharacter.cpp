@@ -91,6 +91,16 @@ void ASkirmishCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	}
 }
 
+void ASkirmishCharacter::NotifyControllerChanged()
+{
+	Super::NotifyControllerChanged();
+
+	if (CurrentWeapon)
+	{
+		CurrentWeapon->NotifyAmmoChanged();
+	}
+}
+
 void ASkirmishCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
@@ -152,6 +162,7 @@ void ASkirmishCharacter::SetSkinMaterial(UMaterialInterface* NewMaterial)
 	{
 		return;
 	}
+
 	SkinMaterial = NewMaterial;
 	ApplySkin(); 
 }
@@ -217,8 +228,7 @@ void ASkirmishCharacter::ServerFire_Implementation()
 	Params.Instigator = this;
 	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 
-	ASkirmishProjectile* Projectile = World->SpawnActor<ASkirmishProjectile>(
-		ProjectileClass, Muzzle->GetComponentLocation(), GetActorRotation(), Params);
+	ASkirmishProjectile* Projectile = World->SpawnActor<ASkirmishProjectile>(ProjectileClass, Muzzle->GetComponentLocation(), GetActorRotation(), Params);
 
 	if (Projectile)
 	{
@@ -321,6 +331,7 @@ void ASkirmishCharacter::UpdateLabel()
 void ASkirmishCharacter::SpawnDefaultWeapon()
 {
 	UWorld* World = GetWorld();
+
 	if (!World || !DefaultWeaponClass)
 	{
 		return;
@@ -343,12 +354,14 @@ void ASkirmishCharacter::OnRep_CurrentWeapon()
 void ASkirmishCharacter::AttachWeapon()
 {
 	USkeletalMeshComponent* CharacterMesh = GetMesh();
+
 	if (!CurrentWeapon || !CharacterMesh)
 	{
 		return;
 	}
 
 	CurrentWeapon->AttachToComponent(CharacterMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponSocketName);
+	CurrentWeapon->NotifyAmmoChanged();
 }
 
 void ASkirmishCharacter::HandleDeath()
@@ -381,8 +394,6 @@ void ASkirmishCharacter::HandleDeath()
 		StatusLabel->SetVisibility(false);
 	}
 }
-
-
 
 void ASkirmishCharacter::Destroyed()
 {

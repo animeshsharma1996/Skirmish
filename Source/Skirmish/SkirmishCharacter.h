@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
 #include "Actors/PickupReceiver.h"
+#include "Weapons/WeaponHolder.h"
 #include "SkirmishCharacter.generated.h"
 
 class USpringArmComponent;
@@ -138,5 +139,6 @@ protected:
 	void HandleDeath();
 
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+	virtual void NotifyControllerChanged() override;
 };
 
