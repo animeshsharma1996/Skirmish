@@ -12,7 +12,6 @@
 class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
-class ASkirmishProjectile;
 struct FInputActionValue;
 class UTextRenderComponent;
 class UMaterialInterface;
@@ -54,12 +53,14 @@ public:
 	virtual void DoJumpEnd();
 
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void ReceivePickup(int32 InPoints, int32 InAmmo) override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 	virtual void Destroyed() override;
 
 	virtual ASkirmishWeapon* GetCurrentWeapon() const override { return CurrentWeapon; }
+	virtual bool IsAiming() const override { return bIsAiming; }
 
 	void SetSkinMaterial(UMaterialInterface* NewMaterial);
 	void Heal(int32 Amount);
@@ -85,14 +86,32 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInputAction> FireAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInputAction> AimAction;
+
 	UPROPERTY(VisibleAnywhere, Category = "Score")
 	TObjectPtr<UTextRenderComponent> StatusLabel;
 
-	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
-	TSubclassOf<ASkirmishProjectile> ProjectileClass;
-
 	UPROPERTY(ReplicatedUsing = OnRep_SkinMaterial)
 	TObjectPtr<UMaterialInterface> SkinMaterial;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming")
+	float WalkSpeed = 500.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming")
+	float AimWalkSpeed = 250.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming")
+	float DefaultFOV = 90.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming")
+	float AimFOV = 60.f;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Aiming")
+	float FOVInterpSpeed = 10.f;
+
+	UPROPERTY(ReplicatedUsing = OnRep_IsAiming, VisibleAnywhere, Category = "Aiming")
+	bool bIsAiming = false;
 
 	UPROPERTY(ReplicatedUsing = OnRep_Health, VisibleAnywhere, Category = "Health")
 	float Health = 100.f;
@@ -114,11 +133,17 @@ protected:
 
 	bool bDeathHandled = false;
 
+	UFUNCTION()
+	void PlayFireAnimation();
+
 	UFUNCTION(Server, Reliable)
-	void ServerFire();
+	void ServerFire(FVector_NetQuantize AimTarget);
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetAiming(bool bNewAiming);
 
 	UFUNCTION()
-	void HandleProjectileHit(AActor* HitActor, FVector Location);
+	void HandleWeaponHit(AActor* HitActor, FVector Location);
 
 	UFUNCTION()
 	void OnRep_SkinMaterial();
@@ -129,15 +154,27 @@ protected:
 	UFUNCTION()
 	void OnRep_CurrentWeapon();
 
+	UFUNCTION()
+	void OnRep_IsAiming();
+
 	void SpawnDefaultWeapon();
 	void AttachWeapon();
 	void ApplySkin();
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
+	void StartAiming();
+	void StopAiming();
+	void SetAiming(bool bNewAiming);
+	void ApplyAimingState();
 	void Fire();
 	void UpdateLabel();
 	void HandleDeath();
+	void StartFire();
+	void StopFire();
 
+	FVector GetAimTarget() const;
+	FTimerHandle AutoFireTimer;
+	
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void NotifyControllerChanged() override;
 };

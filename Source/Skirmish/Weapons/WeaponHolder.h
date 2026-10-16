@@ -18,4 +18,5 @@ class SKIRMISH_API IWeaponHolder
 
 public:
     virtual ASkirmishWeapon* GetCurrentWeapon() const = 0;
+    virtual bool IsAiming() const = 0;
 };
