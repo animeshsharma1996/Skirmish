@@ -56,6 +56,7 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 	virtual void ReceivePickup(int32 InPoints, int32 InAmmo) override;
+	virtual void ReceiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass) override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 	virtual void Destroyed() override;
 
@@ -65,6 +66,7 @@ public:
 	void SetSkinMaterial(UMaterialInterface* NewMaterial);
 	void Heal(int32 Amount);
 	bool IsDead() const { return Health <= 0.f; }
+	void GiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass);
 
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
@@ -88,6 +90,15 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInputAction> AimAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInputAction> ReloadAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInputAction> WeaponOneAction;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInputAction> WeaponTwoAction;
 
 	UPROPERTY(VisibleAnywhere, Category = "Score")
 	TObjectPtr<UTextRenderComponent> StatusLabel;
@@ -123,7 +134,14 @@ protected:
 	float Damage = 20.f;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
-	TSubclassOf<ASkirmishWeapon> DefaultWeaponClass;
+	TArray<TSubclassOf<ASkirmishWeapon>> DefaultWeapons;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
+	int32 MaxWeapons = 2;
+
+	// Only the owner needs the whole inventory
+	UPROPERTY(Replicated, VisibleAnywhere, Category = "Weapon")
+	TArray<TObjectPtr<ASkirmishWeapon>> Weapons;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Weapon")
 	FName WeaponSocketName = TEXT("WeaponSocket");
@@ -136,11 +154,20 @@ protected:
 	UFUNCTION()
 	void PlayFireAnimation();
 
+	UFUNCTION()
+	void PlayReloadAnimation();
+
 	UFUNCTION(Server, Reliable)
 	void ServerFire(FVector_NetQuantize AimTarget);
 
 	UFUNCTION(Server, Reliable)
 	void ServerSetAiming(bool bNewAiming);
+
+	UFUNCTION(Server, Reliable)
+	void ServerReload();
+
+	UFUNCTION(Server, Reliable)
+	void ServerEquipWeapon(int32 Index);
 
 	UFUNCTION()
 	void HandleWeaponHit(AActor* HitActor, FVector Location);
@@ -165,12 +192,17 @@ protected:
 	void StartAiming();
 	void StopAiming();
 	void SetAiming(bool bNewAiming);
+	void PlayWeaponMontage(UAnimMontage* Montage);
 	void ApplyAimingState();
 	void Fire();
 	void UpdateLabel();
 	void HandleDeath();
 	void StartFire();
 	void StopFire();
+	void Reload();
+	void SelectWeaponOne();
+	void SelectWeaponTwo();
+	void EquipWeapon(int32 Index);
 
 	FVector GetAimTarget() const;
 	FTimerHandle AutoFireTimer;

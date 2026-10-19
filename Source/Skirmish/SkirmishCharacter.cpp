@@ -80,7 +80,12 @@ void ASkirmishCharacter::BeginPlay()
 
 	if (HasAuthority())
 	{
-		SpawnDefaultWeapon();
+		for (const TSubclassOf<ASkirmishWeapon>& WeaponClass : DefaultWeapons)
+		{
+			GiveWeapon(WeaponClass);
+		}
+
+		EquipWeapon(0);
 	}
 }
 
@@ -108,6 +113,9 @@ void ASkirmishCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed, this, &ASkirmishCharacter::StopAiming);
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ASkirmishCharacter::StartFire);
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &ASkirmishCharacter::StopFire);
+		EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started, this, &ASkirmishCharacter::Reload);
+		EnhancedInputComponent->BindAction(WeaponOneAction, ETriggerEvent::Started, this, &ASkirmishCharacter::SelectWeaponOne);
+		EnhancedInputComponent->BindAction(WeaponTwoAction, ETriggerEvent::Started, this, &ASkirmishCharacter::SelectWeaponTwo);
 	}
 	else
 	{
@@ -133,6 +141,7 @@ void ASkirmishCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	DOREPLIFETIME(ASkirmishCharacter, Health);
 	DOREPLIFETIME(ASkirmishCharacter, CurrentWeapon);
 	DOREPLIFETIME_CONDITION(ASkirmishCharacter, bIsAiming, COND_SkipOwner);
+	DOREPLIFETIME_CONDITION(ASkirmishCharacter, Weapons, COND_OwnerOnly);
 }
 
 void ASkirmishCharacter::Move(const FInputActionValue& Value)
@@ -293,6 +302,10 @@ void ASkirmishCharacter::StopFire()
 
 void ASkirmishCharacter::Fire()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[%s] Fire: Weapon=%s Ammo=%d"),
+		HasAuthority() ? TEXT("Server") : TEXT("Client"),
+		*GetNameSafe(CurrentWeapon), CurrentWeapon ? CurrentWeapon->GetAmmo() : -1);
+
 	if (!CurrentWeapon)
 	{
 		return;
@@ -300,7 +313,7 @@ void ASkirmishCharacter::Fire()
 
 	if (CurrentWeapon->GetAmmo() <= 0)
 	{
-		UKismetSystemLibrary::PrintString(this, TEXT("Out of ammo!"), true, false, FLinearColor::Yellow, 1.f);
+		Reload();
 		return;
 	}
 
@@ -309,6 +322,8 @@ void ASkirmishCharacter::Fire()
 
 void ASkirmishCharacter::ServerFire_Implementation(FVector_NetQuantize AimTarget)
 {
+	UE_LOG(LogTemp, Warning, TEXT("ServerFire from %s"), *GetName());
+
 	if (IsDead() || !CurrentWeapon)
 	{
 		return;
@@ -330,6 +345,7 @@ void ASkirmishCharacter::ServerFire_Implementation(FVector_NetQuantize AimTarget
 	const FVector ToTarget = (FVector(AimTarget) - GetActorLocation()).GetSafeNormal();
 	if (FVector::DotProduct(ToTarget, GetBaseAimRotation().Vector()) < 0.5f)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("ServerFire rejected: target not in front"));
 		return;
 	}
 
@@ -427,30 +443,11 @@ void ASkirmishCharacter::UpdateLabel()
 	}
 }
 
-void ASkirmishCharacter::SpawnDefaultWeapon()
-{
-	UWorld* World = GetWorld();
-
-	if (!World || !DefaultWeaponClass)
-	{
-		return;
-	}
-
-	FActorSpawnParameters Params;
-	Params.Owner = this;        // ownership chain : Controller → Character → Weapon
-	Params.Instigator = this;
-	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-
-	CurrentWeapon = World->SpawnActor<ASkirmishWeapon>(DefaultWeaponClass, GetActorTransform(), Params);
-	if (CurrentWeapon)
-	{
-		CurrentWeapon->OnWeaponHit.AddDynamic(this, &ASkirmishCharacter::HandleWeaponHit);
-	}
-	AttachWeapon(); 
-}
-
 void ASkirmishCharacter::OnRep_CurrentWeapon()
 {
+	UE_LOG(LogTemp, Warning, TEXT("[%s] OnRep_CurrentWeapon: %s"),
+		HasAuthority() ? TEXT("Server") : TEXT("Client"), *GetNameSafe(CurrentWeapon));
+
 	AttachWeapon();
 }
 
@@ -466,30 +463,167 @@ void ASkirmishCharacter::AttachWeapon()
 	CurrentWeapon->AttachToComponent(CharacterMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponSocketName);
 	CurrentWeapon->NotifyAmmoChanged();
 	CurrentWeapon->OnWeaponFired.AddUniqueDynamic(this, &ASkirmishCharacter::PlayFireAnimation);
+	CurrentWeapon->OnReloadStarted.AddUniqueDynamic(this, &ASkirmishCharacter::PlayReloadAnimation);
+
+	PlayWeaponMontage(CurrentWeapon->GetEquipMontage());
 }
 
 void ASkirmishCharacter::PlayFireAnimation()
 {
-	USkeletalMeshComponent* CharacterMesh = GetMesh();
-	if (!CharacterMesh)
+	if (!CurrentWeapon)
 	{
 		return;
 	}
 
-	USkirmishAnimInstance* AnimInstance = Cast<USkirmishAnimInstance>(CharacterMesh->GetAnimInstance());
+	PlayWeaponMontage(CurrentWeapon->GetFireMontage());
+}
+
+void ASkirmishCharacter::PlayReloadAnimation()
+{
+	if (!CurrentWeapon)
+	{
+		return;
+	}
+
+	PlayWeaponMontage(CurrentWeapon->GetReloadMontage());
+}
+
+void ASkirmishCharacter::PlayWeaponMontage(UAnimMontage* Montage)
+{
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	if (!Montage || !CharacterMesh)
+	{
+		return;
+	}
+
+	UAnimInstance* AnimInstance = CharacterMesh->GetAnimInstance();
 	if (!AnimInstance)
 	{
 		return;
 	}
 
-	AnimInstance->TriggerRecoil();
+	AnimInstance->Montage_Play(Montage);
+}
 
-	UAnimMontage* FireMontage = CurrentWeapon ? CurrentWeapon->GetFireMontage() : nullptr;
-	if (FireMontage)
+void ASkirmishCharacter::GiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass)
+{
+	UWorld* World = GetWorld();
+	if (!HasAuthority() || !World || !WeaponClass)
 	{
-		AnimInstance->Montage_Play(FireMontage);
+		return;
+	}
+
+	for (ASkirmishWeapon* Weapon : Weapons)
+	{
+		if (Weapon && Weapon->GetClass() == WeaponClass)
+		{
+			Weapon->AddAmmo(Weapon->GetMagazineSize());
+			return;
+		}
+	}
+
+	if (Weapons.Num() >= MaxWeapons && CurrentWeapon)
+	{
+		Weapons.Remove(CurrentWeapon);
+		CurrentWeapon->Destroy();
+		CurrentWeapon = nullptr;
+	}
+
+	FActorSpawnParameters Params;
+	Params.Owner = this;
+	Params.Instigator = this;
+	Params.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+
+	ASkirmishWeapon* NewWeapon = World->SpawnActor<ASkirmishWeapon>(WeaponClass, GetActorTransform(), Params);
+	if (!NewWeapon)
+	{
+		return;
+	}
+
+	NewWeapon->OnWeaponHit.AddDynamic(this, &ASkirmishCharacter::HandleWeaponHit);
+	NewWeapon->SetActorHiddenInGame(true);
+
+	const int32 Index = Weapons.Add(NewWeapon);
+	EquipWeapon(Index);
+}
+
+void ASkirmishCharacter::EquipWeapon(int32 Index)
+{
+	// The client sends the index - always check it
+	if (!HasAuthority() || !Weapons.IsValidIndex(Index))
+	{
+		return;
+	}
+
+	ASkirmishWeapon* NewWeapon = Weapons[Index];
+	if (!NewWeapon || NewWeapon == CurrentWeapon)
+	{
+		return;
+	}
+
+	// Put the old weapon away
+	if (CurrentWeapon)
+	{
+		CurrentWeapon->CancelReload();
+		CurrentWeapon->SetActorHiddenInGame(true);
+	}
+
+	CurrentWeapon = NewWeapon;
+	CurrentWeapon->SetActorHiddenInGame(false);
+	AttachWeapon(); // server does not get OnRep_CurrentWeapon
+}
+
+void ASkirmishCharacter::ReceiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass)
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	GiveWeapon(WeaponClass);
+}
+
+void ASkirmishCharacter::ServerEquipWeapon_Implementation(int32 Index)
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	EquipWeapon(Index);
+}
+
+void ASkirmishCharacter::SelectWeaponOne()
+{
+	StopFire();
+	ServerEquipWeapon(0);
+}
+
+void ASkirmishCharacter::SelectWeaponTwo()
+{
+	StopFire();
+	ServerEquipWeapon(1);
+}
+
+void ASkirmishCharacter::Reload()
+{
+	if (CurrentWeapon && CurrentWeapon->CanReload())
+	{
+		StopFire();
+		ServerReload();
 	}
 }
+
+void ASkirmishCharacter::ServerReload_Implementation()
+{
+	if (IsDead() || !CurrentWeapon)
+	{
+		return;
+	}
+
+	CurrentWeapon->StartReload();
+}
+
 
 void ASkirmishCharacter::HandleDeath()
 {
@@ -525,9 +659,15 @@ void ASkirmishCharacter::HandleDeath()
 
 void ASkirmishCharacter::Destroyed()
 {
-	if (HasAuthority() && CurrentWeapon)
+	if (HasAuthority())
 	{
-		CurrentWeapon->Destroy();
+		for (ASkirmishWeapon* Weapon : Weapons)
+		{
+			if (Weapon)
+			{
+				Weapon->Destroy();
+			}
+		}
 	}
 
 	Super::Destroyed();

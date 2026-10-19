@@ -6,6 +6,8 @@
 #include "UObject/Interface.h"
 #include "PickupReceiver.generated.h"
 
+class ASkirmishWeapon;
+
 // This class does not need to be modified.
 UINTERFACE(MinimalAPI)
 class UPickupReceiver : public UInterface
@@ -19,4 +21,5 @@ class SKIRMISH_API IPickupReceiver
 
 public:
 	virtual void ReceivePickup(int32 HealthAmount, int32 AmmoAmount) = 0;
+	virtual void ReceiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass) = 0;
 };

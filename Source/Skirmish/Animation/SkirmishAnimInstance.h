@@ -17,28 +17,31 @@ protected:
     virtual void NativeUpdateAnimation(float DeltaSeconds) override;
 
     UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
-    float AimPitch = 0.f;
+    FVector Velocity = FVector::ZeroVector;
 
     UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
-    float SpinePitch = 0.f;
+    float AimOffsetPitch = 0.f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
+    float GroundSpeed = 0.f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
+    float Direction = 0.f;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
+    bool bShouldMove = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
+    bool bIsFalling = false;
+
+    UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
+    float AimPitch = 0.f;
 
     UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
     bool bIsAiming = false;
 
     UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
     bool bHasWeapon = false;
-
-    UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
-    float RecoilAlpha = 0.f;
-
-    UPROPERTY(EditDefaultsOnly, Category = "Skirmish")
-    float AimBendAmount = 0.8f;
-
-    UPROPERTY(EditDefaultsOnly, Category = "Skirmish")
-    float RecoilKick = 4.f;
-
-    UPROPERTY(EditDefaultsOnly, Category = "Skirmish")
-    float RecoilRecoverySpeed = 12.f;
 
 private:
     UPROPERTY()

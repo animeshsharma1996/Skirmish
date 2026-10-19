@@ -1,10 +1,6 @@
 #include "SkirmishAnimInstance.h"
 #include "../Weapons/WeaponHolder.h"
-
-void USkirmishAnimInstance::TriggerRecoil()
-{
-    RecoilAlpha = 1.f;
-}
+#include "GameFramework/PawnMovementComponent.h"
 
 void USkirmishAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 {
@@ -20,8 +16,25 @@ void USkirmishAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
         return;
     }
 
+    Velocity = OwnerPawn->GetVelocity();
+    GroundSpeed = Velocity.Size2D();
+    bShouldMove = GroundSpeed > 3.f;
+
+    if (bShouldMove)
+    {
+        const float MoveYaw = Velocity.ToOrientationRotator().Yaw;
+        Direction = FRotator::NormalizeAxis(MoveYaw - OwnerPawn->GetActorRotation().Yaw);
+    }
+
+    UPawnMovementComponent* MovementComponent = OwnerPawn->GetMovementComponent();
+    if (MovementComponent)
+    {
+        bIsFalling = MovementComponent->IsFalling();
+    }
+
     const FRotator AimRotation = OwnerPawn->GetBaseAimRotation();
-    AimPitch = FRotator::NormalizeAxis(AimRotation.Pitch);
+    AimPitch = FMath::Clamp(FRotator::NormalizeAxis(AimRotation.Pitch), -90.f, 90.f);
+    AimOffsetPitch = AimPitch / 90.f;
 
     const IWeaponHolder* WeaponHolder = Cast<IWeaponHolder>(OwnerPawn);
     if (WeaponHolder)
@@ -29,8 +42,4 @@ void USkirmishAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
         bIsAiming = WeaponHolder->IsAiming();
         bHasWeapon = WeaponHolder->GetCurrentWeapon() != nullptr;
     }
-
-    RecoilAlpha = FMath::FInterpTo(RecoilAlpha, 0.f, DeltaSeconds, RecoilRecoverySpeed);
-
-    SpinePitch = FMath::Clamp(AimPitch * AimBendAmount, -60.f, 60.f) + RecoilAlpha * RecoilKick;
 }

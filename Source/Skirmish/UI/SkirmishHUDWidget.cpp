@@ -87,10 +87,19 @@ void USkirmishHUDWidget::HandleElimination(const FString& KillerName, const FStr
     }
 }
 
-void USkirmishHUDWidget::HandleAmmoChanged(int32 Ammo)
+void USkirmishHUDWidget::HandleAmmoChanged(int32 Ammo, int32 ReserveAmmo, bool bIsReloading)
 {
-    if (AmmoText)
-    {   
-        AmmoText->SetText(FText::FromString(TEXT("Ammo : ") + FString::FromInt(Ammo)));
+    if (!AmmoText)
+    {
+        return;
     }
+
+    if (bIsReloading)
+    {
+        AmmoText->SetText(FText::FromString(TEXT("Reloading...")));
+        return;
+    }
+
+    AmmoText->SetText(FText::FromString(FString::Printf(TEXT("%d / %d"), Ammo, ReserveAmmo)));
 }
+

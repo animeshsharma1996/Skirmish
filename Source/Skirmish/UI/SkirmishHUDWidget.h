@@ -38,7 +38,7 @@ private:
     void HandleElimination(const FString& KillerName, const FString& VictimName);
 
     UFUNCTION()
-    void HandleAmmoChanged(int32 Ammo);
+    void HandleAmmoChanged(int32 Ammo, int32 ReserveAmmo, bool bIsReloading);
 
     TArray<FString> FeedLines;
     FTimerHandle RefreshTimer;

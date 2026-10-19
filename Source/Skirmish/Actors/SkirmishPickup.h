@@ -6,6 +6,7 @@
 
 class USphereComponent;
 class UStaticMeshComponent;
+class ASkirmishWeapon;
 
 UCLASS()
 class SKIRMISH_API ASkirmishPickup : public AActor
@@ -23,6 +24,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, Category = "Pickup")
 	TObjectPtr<USphereComponent> Trigger;
+
+	UPROPERTY(EditAnywhere, Category = "Pickup")
+	TSubclassOf<ASkirmishWeapon> WeaponClass;
 
 	UPROPERTY(EditAnywhere, Category = "Pickup")
 	int32 HealthAmount = 0;

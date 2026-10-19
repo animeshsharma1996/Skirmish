@@ -1,6 +1,7 @@
 #include "SkirmishPickup.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "../Weapons/SkirmishWeapon.h"
 #include "SkirmishCharacter.h"
 
 ASkirmishPickup::ASkirmishPickup()
@@ -43,9 +44,18 @@ void ASkirmishPickup::BeginPlay()
 void ASkirmishPickup::OnTriggerOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, int32 OtherBodyIndex,
 	bool bFromSweep, const FHitResult& SweepResult)
 {
-	if (IPickupReceiver* Receiver = Cast<IPickupReceiver>(OtherActor))
+	IPickupReceiver* PickupReceiver = Cast<IPickupReceiver>(OtherActor);
+	if (PickupReceiver)
 	{
-		Receiver->ReceivePickup(HealthAmount, AmmoAmount);
+		if (WeaponClass)
+		{
+			PickupReceiver->ReceiveWeapon(WeaponClass);
+		}
+		else
+		{
+			PickupReceiver->ReceivePickup(HealthAmount, AmmoAmount);
+		}
+
 		Destroy();
 	}
 }

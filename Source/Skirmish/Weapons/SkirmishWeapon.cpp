@@ -4,6 +4,7 @@
 #include "Net/UnrealNetwork.h"
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
+#include "WeaponHolder.h"
 
 ASkirmishWeapon::ASkirmishWeapon()
 {
@@ -31,6 +32,8 @@ void ASkirmishWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutL
     Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
     DOREPLIFETIME_CONDITION(ASkirmishWeapon, Ammo, COND_OwnerOnly);
+    DOREPLIFETIME_CONDITION(ASkirmishWeapon, ReserveAmmo, COND_OwnerOnly);
+    DOREPLIFETIME(ASkirmishWeapon, bIsReloading);
 }
 
 void ASkirmishWeapon::BeginPlay()
@@ -41,6 +44,7 @@ void ASkirmishWeapon::BeginPlay()
     if (HasAuthority())
     {
         Ammo = MagazineSize;
+        ReserveAmmo = StartingReserveAmmo;
 		NotifyAmmoChanged();
     }
 }
@@ -53,31 +57,35 @@ void ASkirmishWeapon::OnRep_Ammo()
 void ASkirmishWeapon::NotifyAmmoChanged() const
 {
     const APawn* OwnerPawn = Cast<APawn>(GetOwner());
-
     if (!OwnerPawn || !OwnerPawn->IsLocallyControlled())
     {
         return;
     }
 
-    UWorld* World = GetWorld();
+    const IWeaponHolder* WeaponHolder = Cast<IWeaponHolder>(OwnerPawn);
+    if (WeaponHolder && WeaponHolder->GetCurrentWeapon() != this)
+    {
+        return;
+    }
 
+    UWorld* World = GetWorld();
     if (!World)
     {
         return;
     }
 
-    if (USkirmishEventSubsystem* Events = World->GetSubsystem<USkirmishEventSubsystem>())
+    USkirmishEventSubsystem* SkirmishEvent = World->GetSubsystem<USkirmishEventSubsystem>();
+    if (SkirmishEvent)
     {
-        Events->OnLocalAmmoChanged.Broadcast(Ammo);
+        SkirmishEvent->OnLocalAmmoChanged.Broadcast(Ammo, ReserveAmmo, bIsReloading);
     }
-
 }
 
 bool ASkirmishWeapon::CanFire() const
 {
     const UWorld* World = GetWorld();
 
-    if (!World)
+    if (!World || bIsReloading)
     {
         return false;
     }
@@ -87,6 +95,8 @@ bool ASkirmishWeapon::CanFire() const
 
 void ASkirmishWeapon::Fire(const FVector& AimTarget, bool bAiming)
 {
+    UE_LOG(LogTemp, Warning, TEXT("Weapon Fire: Ammo=%d CanFire=%d"), Ammo, CanFire() ? 1 : 0);
+
     UWorld* World = GetWorld();
     if (!HasAuthority() || !World || !Muzzle || !CanFire())
     {
@@ -123,6 +133,9 @@ void ASkirmishWeapon::Fire(const FVector& AimTarget, bool bAiming)
 
 void ASkirmishWeapon::MulticastFireEffects_Implementation(FVector_NetQuantize TraceEnd, bool bHit)
 {
+    UE_LOG(LogTemp, Warning, TEXT("[%s] MulticastFireEffects"),
+        HasAuthority() ? TEXT("Server") : TEXT("Client"));
+
     UWorld* World = GetWorld();
     if (!World || !Muzzle)
     {
@@ -172,7 +185,64 @@ void ASkirmishWeapon::AddAmmo(int32 Amount)
         return;
     }
 
-    Ammo = FMath::Min(Ammo + Amount, MagazineSize);
+    ReserveAmmo = FMath::Min(ReserveAmmo + Amount, MaxReserveAmmo);
     NotifyAmmoChanged();
 }
 
+bool ASkirmishWeapon::CanReload() const
+{
+    return !bIsReloading && Ammo < MagazineSize && ReserveAmmo > 0;
+}
+
+void ASkirmishWeapon::StartReload()
+{
+    UWorld* World = GetWorld();
+    if (!HasAuthority() || !World || !CanReload())
+    {
+        return;
+    }
+
+    bIsReloading = true;
+    NotifyAmmoChanged();
+    OnReloadStarted.Broadcast(); // server does not get OnRep_IsReloading
+
+    World->GetTimerManager().SetTimer(ReloadTimer, this, &ASkirmishWeapon::FinishReload, ReloadTime, false);
+}
+
+void ASkirmishWeapon::FinishReload()
+{
+    const int32 Needed = MagazineSize - Ammo;
+    const int32 Taken = FMath::Min(Needed, ReserveAmmo);
+
+    Ammo += Taken;
+    ReserveAmmo -= Taken;
+    bIsReloading = false;
+    NotifyAmmoChanged();
+}
+
+void ASkirmishWeapon::CancelReload()
+{
+    UWorld* World = GetWorld();
+    if (World)
+    {
+        World->GetTimerManager().ClearTimer(ReloadTimer);
+    }
+
+    bIsReloading = false;
+    NotifyAmmoChanged();
+}
+
+void ASkirmishWeapon::OnRep_ReserveAmmo()
+{
+    NotifyAmmoChanged();
+}
+
+void ASkirmishWeapon::OnRep_IsReloading()
+{
+    NotifyAmmoChanged();
+
+    if (bIsReloading)
+    {
+        OnReloadStarted.Broadcast();
+    }
+}
