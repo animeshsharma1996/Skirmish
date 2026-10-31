@@ -19,8 +19,10 @@ public class Skirmish : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
-		});
+			"Slate",
+            "OnlineSubsystem",
+			"OnlineSubsystemUtils"
+        });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 

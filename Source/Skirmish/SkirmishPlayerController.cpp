@@ -1,12 +1,12 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-
 #include "SkirmishPlayerController.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
 #include "Blueprint/UserWidget.h"
 #include "Skirmish.h"
+#include "Online/SkirmishSessionSubsystem.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 
 void ASkirmishPlayerController::BeginPlay()
@@ -23,13 +23,11 @@ void ASkirmishPlayerController::BeginPlay()
 		{
 			// add the controls to the player screen
 			MobileControlsWidget->AddToPlayerScreen(0);
-
-		} else {
-
+		} 
+		else 
+		{
 			UE_LOG(LogSkirmish, Error, TEXT("Could not spawn mobile controls widget."));
-
 		}
-
 	}
 }
 
@@ -64,4 +62,57 @@ bool ASkirmishPlayerController::ShouldUseTouchControls() const
 {
 	// are we on a mobile platform? Should we force touch?
 	return SVirtualJoystick::ShouldDisplayTouchInterface() || bForceTouchControls;
+}
+
+void ASkirmishPlayerController::EOSLogin(const FString& CredentialName)
+{
+	USkirmishSessionSubsystem* SkirmishSession = GetSkirmishSession();
+
+	if (SkirmishSession)
+	{
+		SkirmishSession->Login(CredentialName);
+	}
+}
+
+USkirmishSessionSubsystem* ASkirmishPlayerController::GetSkirmishSession() const
+{
+	UGameInstance* GameInstance = GetGameInstance();
+
+	if (!GameInstance)
+	{
+		return nullptr;
+	}
+
+	return GameInstance->GetSubsystem<USkirmishSessionSubsystem>();
+}
+
+void ASkirmishPlayerController::HostGame(const FString& GameTypeName)
+{
+	USkirmishSessionSubsystem* SkirmishSession = GetSkirmishSession();
+
+	if (SkirmishSession)
+	{
+		const bool bTeam = GameTypeName.Equals(TEXT("Team"), ESearchCase::IgnoreCase);
+		SkirmishSession->HostGame(bTeam ? ESkirmishGameType::Team : ESkirmishGameType::AllVsAll);
+	}
+}
+
+void ASkirmishPlayerController::FindGames()
+{
+	USkirmishSessionSubsystem* SkirmishSession = GetSkirmishSession();
+
+	if (SkirmishSession)
+	{
+		SkirmishSession->FindGames();
+	}
+}
+
+void ASkirmishPlayerController::JoinGame(int32 Index)
+{
+	USkirmishSessionSubsystem* SkirmishSession = GetSkirmishSession();
+
+	if (SkirmishSession)
+	{
+		SkirmishSession->JoinGame(Index);
+	}
 }

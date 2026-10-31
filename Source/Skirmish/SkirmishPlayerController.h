@@ -8,6 +8,7 @@
 
 class UInputMappingContext;
 class UUserWidget;
+class USkirmishSessionSubsystem;
 
 /**
  *  Basic PlayerController class for a third person game
@@ -19,34 +20,36 @@ class ASkirmishPlayerController : public APlayerController
 	GENERATED_BODY()
 	
 protected:
-
-	/** Input Mapping Contexts */
 	UPROPERTY(EditAnywhere, Category ="Input|Input Mappings")
 	TArray<UInputMappingContext*> DefaultMappingContexts;
 
-	/** Input Mapping Contexts */
 	UPROPERTY(EditAnywhere, Category="Input|Input Mappings")
 	TArray<UInputMappingContext*> MobileExcludedMappingContexts;
 
-	/** Mobile controls widget to spawn */
 	UPROPERTY(EditAnywhere, Category="Input|Touch Controls")
 	TSubclassOf<UUserWidget> MobileControlsWidgetClass;
 
-	/** Pointer to the mobile controls widget */
 	UPROPERTY()
 	TObjectPtr<UUserWidget> MobileControlsWidget;
 
-	/** If true, the player will use UMG touch controls even if not playing on mobile platforms */
 	UPROPERTY(EditAnywhere, Config, Category = "Input|Touch Controls")
 	bool bForceTouchControls = false;
 
-	/** Gameplay initialization */
+	UFUNCTION(Exec)
+	void EOSLogin(const FString& CredentialName);
+
+	UFUNCTION(Exec)
+	void HostGame(const FString& GameTypeName);
+
+	UFUNCTION(Exec)
+	void FindGames();
+
+	UFUNCTION(Exec)
+	void JoinGame(int32 Index);
+
+	USkirmishSessionSubsystem* GetSkirmishSession() const;
+
 	virtual void BeginPlay() override;
-
-	/** Input mapping context setup */
 	virtual void SetupInputComponent() override;
-
-	/** Returns true if the player should use UMG touch controls */
 	bool ShouldUseTouchControls() const;
-
 };
