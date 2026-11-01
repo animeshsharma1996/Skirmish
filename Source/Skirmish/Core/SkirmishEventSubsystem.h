@@ -8,6 +8,7 @@
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEliminationEvent, const FString&, KillerName, const FString&, VictimName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPhaseChangedEvent, ESkirmishMatchPhase, NewPhase);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnLocalAmmoChangedEvent, int32, Ammo, int32, ReserveAmmo, bool, bIsReloading);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnLobbyChangedEvent);
 
 UCLASS()
 class SKIRMISH_API USkirmishEventSubsystem : public UWorldSubsystem
@@ -23,4 +24,7 @@ public:
 
     UPROPERTY(BlueprintAssignable, Category = "Events")
     FOnLocalAmmoChangedEvent OnLocalAmmoChanged;
+
+    UPROPERTY(BlueprintAssignable, Category = "Events")
+    FOnLobbyChangedEvent OnLobbyChanged;
 };

@@ -18,6 +18,18 @@ class SKIRMISH_API USkirmishSessionSubsystem : public UGameInstanceSubsystem
     GENERATED_BODY()
 
 public:
+    UPROPERTY(BlueprintAssignable, Category = "Online")
+    FOnSkirmishSessionsFound OnSessionsFound;
+
+    UPROPERTY(BlueprintAssignable, Category = "Online")
+    FOnSkirmishSessionAction OnHostComplete;
+
+    UPROPERTY(BlueprintAssignable, Category = "Online")
+    FOnSkirmishSessionAction OnJoinComplete;
+
+    UPROPERTY(BlueprintAssignable, Category = "Online")
+    FOnSkirmishLoginComplete OnLoginComplete;
+
     /** Developer Authentication Tool login, or the Epic account web page when CredentialName is empty */
     UFUNCTION(BlueprintCallable, Category = "Online")
     void Login(const FString& CredentialName);
@@ -27,10 +39,6 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Online")
     FString GetPlayerName() const;
-
-    /** The menus listen to this - the subsystem never knows about any widget */
-    UPROPERTY(BlueprintAssignable, Category = "Online")
-    FOnSkirmishLoginComplete OnLoginComplete;
 
     UFUNCTION(BlueprintCallable, Category = "Online")
     void HostGame(ESkirmishGameType GameType, int32 MaxPlayers = 8);
@@ -44,20 +52,19 @@ public:
     UFUNCTION(BlueprintPure, Category = "Online")
     ESkirmishGameType GetHostedGameType() const { return HostedGameType; }
 
-    UPROPERTY(BlueprintAssignable, Category = "Online")
-    FOnSkirmishSessionsFound OnSessionsFound;
+    UFUNCTION(BlueprintCallable, Category = "Online")
+    void QuickMatch(ESkirmishGameType GameType);
 
-    UPROPERTY(BlueprintAssignable, Category = "Online")
-    FOnSkirmishSessionAction OnHostComplete;
-
-    UPROPERTY(BlueprintAssignable, Category = "Online")
-    FOnSkirmishSessionAction OnJoinComplete;
+    UFUNCTION(BlueprintCallable, Category = "Online")
+    void LeaveGame();
 
 private:
     TSharedPtr<FOnlineSessionSearch> SessionSearch;
     TFunction<void()> AfterDestroy;
+    bool bQuickMatchPending = false;
 
     ESkirmishGameType HostedGameType = ESkirmishGameType::AllVsAll;
+    ESkirmishGameType QuickMatchGameType = ESkirmishGameType::AllVsAll;
 
     FDelegateHandle LoginCompleteHandle;
     FDelegateHandle DestroySessionHandle;
@@ -66,11 +73,13 @@ private:
     FDelegateHandle JoinSessionHandle;
 
     const FString DevAuthAddress = TEXT("localhost:6300");
-    const FString HostMapPath = TEXT("/Game/ThirdPerson/Lvl_ThirdPerson");
+    const FString HostMapPath = TEXT("/Game/Maps/Lvl_Lobby");
 
     IOnlineIdentityPtr GetIdentityInterface() const;
     IOnlineSessionPtr GetSessionInterface() const;
 
+    void StartSearch(bool bFilterGameType, ESkirmishGameType GameType);
+    void FinishQuickMatch();
     void ClearSessionThen(TFunction<void()> Next);
     void HandleDestroySessionComplete(FName SessionName, bool bWasSuccessful);
     void HandleCreateSessionComplete(FName SessionName, bool bWasSuccessful);

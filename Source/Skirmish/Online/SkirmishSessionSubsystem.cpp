@@ -4,10 +4,36 @@
 #include "OnlineSessionSettings.h"
 #include "Online/OnlineSessionNames.h"
 #include "GameFramework/PlayerController.h"
+#include "Kismet/GameplayStatics.h"
 
 namespace
 {
     const FName SkirmishGameTypeKey(TEXT("SKIRMISHGAMETYPE"));
+
+    /** Reads the advertised game type from a search result, or INDEX_NONE if it is missing */
+    int32 GetGameTypeValue(const FOnlineSessionSearchResult& SearchResult)
+    {
+        const FOnlineSessionSetting* Setting = SearchResult.Session.SessionSettings.Settings.Find(SkirmishGameTypeKey);
+
+        if (!Setting)
+        {
+            return INDEX_NONE;
+        }
+
+        // EOS sends every number back as int64, other subsystems keep int32
+        if (Setting->Data.GetType() == EOnlineKeyValuePairDataType::Int64)
+        {
+            int64 Value = 0;
+            Setting->Data.GetValue(Value);
+
+            return static_cast<int32>(Value);
+        }
+
+        int32 Value = INDEX_NONE;
+        Setting->Data.GetValue(Value);
+
+        return Value;
+    }
 }
 
 IOnlineIdentityPtr USkirmishSessionSubsystem::GetIdentityInterface() const
@@ -224,33 +250,7 @@ void USkirmishSessionSubsystem::HandleCreateSessionComplete(FName SessionName, b
 
     if (World)
     {
-        World->ServerTravel(FString::Printf(TEXT("%s?listen"), *HostMapPath));
-    }
-}
-
-void USkirmishSessionSubsystem::FindGames()
-{
-    IOnlineSessionPtr SessionInterface = GetSessionInterface();
-
-    if (!SessionInterface.IsValid() || !IsLoggedIn())
-    {
-        UE_LOG(LogTemp, Error, TEXT("FindGames : log in first"));
-        OnSessionsFound.Broadcast(TArray<FSkirmishSessionResult>());
-        return;
-    }
-
-    SessionSearch = MakeShared<FOnlineSessionSearch>();
-    SessionSearch->MaxSearchResults = 20;
-    SessionSearch->bIsLanQuery = false;
-    SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
-
-    FindSessionsHandle = SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(
-        FOnFindSessionsCompleteDelegate::CreateUObject(this, &USkirmishSessionSubsystem::HandleFindSessionsComplete));
-
-    if (!SessionInterface->FindSessions(0, SessionSearch.ToSharedRef()))
-    {
-        SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsHandle);
-        OnSessionsFound.Broadcast(TArray<FSkirmishSessionResult>());
+        UGameplayStatics::OpenLevel(World, FName(*HostMapPath), true, TEXT("listen"));
     }
 }
 
@@ -278,9 +278,8 @@ void USkirmishSessionSubsystem::HandleFindSessionsComplete(bool bWasSuccessful)
             SessionResult.CurrentPlayers = SessionResult.MaxPlayers - SearchResult.Session.NumOpenPublicConnections;
             SessionResult.PingMs = SearchResult.PingInMs;
 
-            int32 GameTypeValue = 0;
-            SearchResult.Session.SessionSettings.Get(SkirmishGameTypeKey, GameTypeValue);
-            SessionResult.GameType = static_cast<ESkirmishGameType>(GameTypeValue);
+            const bool bTeam = GetGameTypeValue(SearchResult) == static_cast<int32>(ESkirmishGameType::Team);
+            SessionResult.GameType = bTeam ? ESkirmishGameType::Team : ESkirmishGameType::AllVsAll;
 
             Results.Add(SessionResult);
 
@@ -299,6 +298,11 @@ void USkirmishSessionSubsystem::HandleFindSessionsComplete(bool bWasSuccessful)
 
     UE_LOG(LogTemp, Warning, TEXT("Found %d game(s)"), Results.Num());
     OnSessionsFound.Broadcast(Results);
+
+    if (bQuickMatchPending)
+    {
+        FinishQuickMatch();
+    }
 }
 
 void USkirmishSessionSubsystem::JoinGame(int32 Index)
@@ -364,3 +368,85 @@ void USkirmishSessionSubsystem::HandleJoinSessionComplete(FName SessionName, EOn
     }
 }
 
+void USkirmishSessionSubsystem::FindGames()
+{
+    bQuickMatchPending = false;
+    StartSearch(false, ESkirmishGameType::AllVsAll);
+}
+
+void USkirmishSessionSubsystem::StartSearch(bool bFilterGameType, ESkirmishGameType GameType)
+{
+    IOnlineSessionPtr SessionInterface = GetSessionInterface();
+
+    if (!SessionInterface.IsValid() || !IsLoggedIn())
+    {
+        UE_LOG(LogTemp, Error, TEXT("Search : log in first"));
+        bQuickMatchPending = false;
+        OnSessionsFound.Broadcast(TArray<FSkirmishSessionResult>());
+        return;
+    }
+
+    SessionSearch = MakeShared<FOnlineSessionSearch>();
+    SessionSearch->MaxSearchResults = 20;
+    SessionSearch->bIsLanQuery = false;
+    SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+
+    if (bFilterGameType)
+    {
+        SessionSearch->QuerySettings.Set(SkirmishGameTypeKey, static_cast<int32>(GameType), EOnlineComparisonOp::Equals);
+    }
+
+    FindSessionsHandle = SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(FOnFindSessionsCompleteDelegate::CreateUObject(this, &USkirmishSessionSubsystem::HandleFindSessionsComplete));
+
+    if (!SessionInterface->FindSessions(0, SessionSearch.ToSharedRef()))
+    {
+        SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsHandle);
+        bQuickMatchPending = false;
+        OnSessionsFound.Broadcast(TArray<FSkirmishSessionResult>());
+    }
+}
+
+void USkirmishSessionSubsystem::QuickMatch(ESkirmishGameType GameType)
+{
+    bQuickMatchPending = true;
+    QuickMatchGameType = GameType;
+    StartSearch(true, GameType);
+}
+
+void USkirmishSessionSubsystem::FinishQuickMatch()
+{
+    bQuickMatchPending = false;
+
+    if (SessionSearch.IsValid())
+    {
+        for (int32 Index = 0; Index < SessionSearch->SearchResults.Num(); ++Index)
+        {
+            const FOnlineSessionSearchResult& SearchResult = SessionSearch->SearchResults[Index];
+
+            const int32 GameTypeValue = GetGameTypeValue(SearchResult);
+
+            if (SearchResult.Session.NumOpenPublicConnections > 0 && GameTypeValue == static_cast<int32>(QuickMatchGameType))
+            {
+                UE_LOG(LogTemp, Warning, TEXT("Quick Match : joining %s"), *SearchResult.Session.OwningUserName);
+                JoinGame(Index);
+                return;
+            }
+        }
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("Quick Match : no game found - hosting one"));
+    HostGame(QuickMatchGameType);
+}
+
+void USkirmishSessionSubsystem::LeaveGame()
+{
+    ClearSessionThen([this]()
+    {
+        UGameInstance* GameInstance = GetGameInstance();
+
+        if (GameInstance)
+        {
+            GameInstance->ReturnToMainMenu();
+        }
+    });
+}

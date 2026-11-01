@@ -2,10 +2,13 @@
 
 #include "SkirmishGameMode.h"
 #include "Core/SkirmishPlayerState.h"
+#include "Kismet/GameplayStatics.h"
 #include "SkirmishCharacter.h"
 
 ASkirmishGameMode::ASkirmishGameMode()
 {
+    bUseSeamlessTravel = true;
+
     PlayerStateClass = ASkirmishPlayerState::StaticClass();
     GameStateClass = ASkirmishGameState::StaticClass();
 }
@@ -16,22 +19,6 @@ void ASkirmishGameMode::BeginPlay()
 
     EnterPhase(ESkirmishMatchPhase::Warmup);
     GetWorldTimerManager().SetTimer(MatchTimer, this, &ASkirmishGameMode::TickMatchTimer, 1.f, true);
-}
-
-void ASkirmishGameMode::PostLogin(APlayerController* NewPlayer)
-{
-    ASkirmishPlayerState* PlayerState = NewPlayer ? NewPlayer->GetPlayerState<ASkirmishPlayerState>() : nullptr;
-
-    if (PlayerState)
-    {
-        if (SkinMaterials.Num() > 0 && SkinMaterials[SkinCount % SkinMaterials.Num()])
-        {
-            PlayerState->SetSkinMaterial(SkinMaterials[SkinCount % SkinMaterials.Num()]);
-            SkinCount++;
-        }
-    }
-
-    Super::PostLogin(NewPlayer);
 }
 
 void ASkirmishGameMode::RestartPlayer(AController* NewPlayer)
@@ -49,6 +36,17 @@ void ASkirmishGameMode::RestartPlayer(AController* NewPlayer)
     if (SkirmishCharacter && PlayerState)
     {
         SkirmishCharacter->SetSkinMaterial(PlayerState->GetSkinMaterial());
+
+        // Team games get a Red or Blue outline, All vs All gets none
+        UMaterialInterface* OutlineMaterial = nullptr;
+        const int32 Team = PlayerState->GetTeamIndex();
+
+        if (IsTeamGame() && TeamOutlineMaterials.IsValidIndex(Team))
+        {
+            OutlineMaterial = TeamOutlineMaterials[Team];
+        }
+
+        SkirmishCharacter->SetOutlineMaterial(OutlineMaterial);
     }
 }
 
@@ -71,7 +69,24 @@ void ASkirmishGameMode::PlayerEliminated(APawn* Victim, AController* VictimContr
         KillerState->AddKill();
     }
 
-    if (KillerState && KillerState->GetKills() >= KillLimit)
+    ASkirmishGameState* SkirmishGameState = GetGameState<ASkirmishGameState>();
+
+    if (IsTeamGame())
+    {
+        const bool bEnemyKill = KillerState && VictimState && KillerState != VictimState && KillerState->GetTeamIndex() != VictimState->GetTeamIndex();
+
+        if (bEnemyKill && SkirmishGameState && SkirmishGameState->TeamScores.IsValidIndex(KillerState->GetTeamIndex()))
+        {
+            int32& TeamScore = SkirmishGameState->TeamScores[KillerState->GetTeamIndex()];
+            TeamScore++;
+
+            if (TeamScore >= TeamKillLimit)
+            {
+                EndTeamMatch(KillerState->GetTeamIndex());
+            }
+        }
+    }
+    else if (KillerState && KillerState->GetKills() >= KillLimit)
     {
         EndMatch(KillerState);
     }
@@ -94,7 +109,7 @@ void ASkirmishGameMode::PlayerEliminated(APawn* Victim, AController* VictimContr
         GetWorldTimerManager().SetTimer(RespawnTimer, RespawnDelegate, RespawnDelay, false);
     }
 
-    if (ASkirmishGameState* SkirmishGameState = GetGameState<ASkirmishGameState>())
+    if (SkirmishGameState)
     {
         SkirmishGameState->MulticastElimination(KillerState ? KillerState->GetPlayerName() : TEXT("World"), VictimState ? VictimState->GetPlayerName() : TEXT("Unknown"));
     }
@@ -154,7 +169,18 @@ void ASkirmishGameMode::TickMatchTimer()
     switch (SkirmishGameState->GetPhase())
     {
         case ESkirmishMatchPhase::Warmup:     EnterPhase(ESkirmishMatchPhase::InProgress); break;
-        case ESkirmishMatchPhase::InProgress: EndMatch(GetTopPlayer());                    break;
+        case ESkirmishMatchPhase::InProgress:
+        {
+            if (IsTeamGame())
+            {
+                EndTeamMatch(GetLeadingTeam());
+            }
+            else
+            {
+                EndMatch(GetTopPlayer());
+            }
+            break;
+        }
         case ESkirmishMatchPhase::MatchOver:  ResetMatch();                                break;
     }
 }
@@ -213,7 +239,6 @@ void ASkirmishGameMode::ResetMatch()
             PlayerState->ResetStats();
         }
 
-        // Fresh character at a Player Start
         if (APawn* Pawn = PlayerController->GetPawn())
         {
             PlayerController->UnPossess();
@@ -223,6 +248,130 @@ void ASkirmishGameMode::ResetMatch()
         RestartPlayer(PlayerController);
     }
 
+    ASkirmishGameState* SkirmishGameState = GetGameState<ASkirmishGameState>();
+
+    if (SkirmishGameState)
+    {
+        SkirmishGameState->TeamScores.Init(0, 2);
+        SkirmishGameState->WinningTeam = INDEX_NONE;
+    }
+
     EnterPhase(ESkirmishMatchPhase::Warmup);
+}
+
+void ASkirmishGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)
+{
+    Super::InitGame(MapName, Options, ErrorMessage);
+
+    const int32 GameTypeValue = UGameplayStatics::GetIntOption(Options, TEXT("GameType"), static_cast<int32>(DefaultGameType));
+    GameType = GameTypeValue == static_cast<int32>(ESkirmishGameType::Team) ? ESkirmishGameType::Team : ESkirmishGameType::AllVsAll;
+
+    UE_LOG(LogTemp, Warning, TEXT("Game type : %s"), IsTeamGame() ? TEXT("Team") : TEXT("All vs All"));
+
+    // The Game State already exists here - share the game type with every client
+    ASkirmishGameState* SkirmishGameState = GetGameState<ASkirmishGameState>();
+
+    if (SkirmishGameState)
+    {
+        SkirmishGameState->GameType = GameType;
+        SkirmishGameState->TeamScores.Init(0, 2);
+        SkirmishGameState->WinningTeam = INDEX_NONE;
+    }
+}
+
+void ASkirmishGameMode::GenericPlayerInitialization(AController* NewPlayer)
+{
+    Super::GenericPlayerInitialization(NewPlayer);
+
+    ASkirmishPlayerState* SkirmishPlayerState = NewPlayer ? NewPlayer->GetPlayerState<ASkirmishPlayerState>() : nullptr;
+
+    if (!SkirmishPlayerState)
+    {
+        return;
+    }
+
+    if (IsTeamGame())
+    {
+        const int32 Team = PickTeam();
+        SkirmishPlayerState->SetTeamIndex(Team);
+
+        // The team shows as an outline, so the mesh keeps its own material
+        SkirmishPlayerState->SetSkinMaterial(nullptr);
+
+        return;
+    }
+
+    // All vs All : the Week 4 colour per player
+    SkirmishPlayerState->SetTeamIndex(INDEX_NONE);
+
+    if (SkinMaterials.Num() > 0 && SkinMaterials[SkinCount % SkinMaterials.Num()])
+    {
+        SkirmishPlayerState->SetSkinMaterial(SkinMaterials[SkinCount % SkinMaterials.Num()]);
+        SkinCount++;
+    }
+}
+
+int32 ASkirmishGameMode::PickTeam() const
+{
+    int32 TeamSizes[2] = { 0, 0 };
+
+    if (GameState)
+    {
+        for (APlayerState* PlayerState : GameState->PlayerArray)
+        {
+            const ASkirmishPlayerState* SkirmishPlayerState = Cast<ASkirmishPlayerState>(PlayerState);
+
+            if (SkirmishPlayerState && (SkirmishPlayerState->GetTeamIndex() == 0 || SkirmishPlayerState->GetTeamIndex() == 1))
+            {
+                TeamSizes[SkirmishPlayerState->GetTeamIndex()]++;
+            }
+        }
+    }
+
+    // Join the smaller team (Red when equal)
+    return TeamSizes[1] < TeamSizes[0] ? 1 : 0;
+}
+
+bool ASkirmishGameMode::CanDamage(AController* InstigatorController, AController* VictimController) const
+{
+    if (!IsTeamGame() || !InstigatorController || !VictimController || InstigatorController == VictimController)
+    {
+        return true;
+    }
+
+    const ASkirmishPlayerState* InstigatorState = InstigatorController->GetPlayerState<ASkirmishPlayerState>();
+    const ASkirmishPlayerState* VictimState = VictimController->GetPlayerState<ASkirmishPlayerState>();
+
+    if (!InstigatorState || !VictimState)
+    {
+        return true;
+    }
+
+    // No friendly fire
+    return InstigatorState->GetTeamIndex() != VictimState->GetTeamIndex();
+}
+
+int32 ASkirmishGameMode::GetLeadingTeam() const
+{
+    const ASkirmishGameState* SkirmishGameState = GetGameState<ASkirmishGameState>();
+
+    if (!SkirmishGameState || SkirmishGameState->TeamScores.Num() < 2 || SkirmishGameState->TeamScores[0] == SkirmishGameState->TeamScores[1])
+    {
+        return INDEX_NONE; // Draw
+    }
+
+    return SkirmishGameState->TeamScores[0] > SkirmishGameState->TeamScores[1] ? 0 : 1;
+}
+
+void ASkirmishGameMode::EndTeamMatch(int32 WinningTeam)
+{
+    ASkirmishGameState* SkirmishGameState = GetGameState<ASkirmishGameState>();
+
+    if (SkirmishGameState)
+    {
+        SkirmishGameState->WinningTeam = WinningTeam;
+    }
+
+    EnterPhase(ESkirmishMatchPhase::MatchOver);
 }
 

@@ -64,6 +64,7 @@ public:
 	virtual bool IsAiming() const override { return bIsAiming; }
 
 	void SetSkinMaterial(UMaterialInterface* NewMaterial);
+	void SetOutlineMaterial(UMaterialInterface* NewMaterial);
 	void Heal(int32 Amount);
 	bool IsDead() const { return Health <= 0.f; }
 	void GiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass);
@@ -105,6 +106,10 @@ protected:
 
 	UPROPERTY(ReplicatedUsing = OnRep_SkinMaterial)
 	TObjectPtr<UMaterialInterface> SkinMaterial;
+
+	/** Team outline, drawn over the mesh as an Overlay Material (works with any mesh) */
+	UPROPERTY(ReplicatedUsing = OnRep_OutlineMaterial)
+	TObjectPtr<UMaterialInterface> OutlineMaterial;
 
 	UPROPERTY(EditDefaultsOnly, Category = "Aiming")
 	float WalkSpeed = 500.f;
@@ -176,6 +181,9 @@ protected:
 	void OnRep_SkinMaterial();
 
 	UFUNCTION()
+	void OnRep_OutlineMaterial();
+
+	UFUNCTION()
 	void OnRep_Health();
 
 	UFUNCTION()
@@ -187,6 +195,7 @@ protected:
 	void SpawnDefaultWeapon();
 	void AttachWeapon();
 	void ApplySkin();
+	void ApplyOutline();
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
 	void StartAiming();

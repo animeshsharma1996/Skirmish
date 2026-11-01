@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/GameStateBase.h"
+#include "SkirmishTypes.h"
 #include "SkirmishGameState.generated.h"
 
 UENUM(BlueprintType)
@@ -35,6 +36,15 @@ public:
     UPROPERTY(Replicated, BlueprintReadOnly, Category = "Match")
     TObjectPtr<APlayerState> Winner;
 
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "Match")
+    ESkirmishGameType GameType = ESkirmishGameType::AllVsAll;
+
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "Match")
+    TArray<int32> TeamScores;
+
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "Match")
+    int32 WinningTeam = INDEX_NONE;
+
     UFUNCTION(NetMulticast, Reliable)
     void MulticastElimination(const FString& KillerName, const FString& VictimName);
 
@@ -43,6 +53,9 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Match")
     FString GetScoreboardText() const;
+
+    bool IsTeamGame() const { return GameType == ESkirmishGameType::Team; }
+    static FString GetTeamName(int32 TeamIndex);
 
 protected:
     UPROPERTY(ReplicatedUsing = OnRep_Phase, BlueprintReadOnly, Category = "Match")

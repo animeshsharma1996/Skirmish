@@ -10,10 +10,6 @@ class UInputMappingContext;
 class UUserWidget;
 class USkirmishSessionSubsystem;
 
-/**
- *  Basic PlayerController class for a third person game
- *  Manages input mappings
- */
 UCLASS(abstract)
 class ASkirmishPlayerController : public APlayerController
 {
@@ -46,6 +42,18 @@ protected:
 
 	UFUNCTION(Exec)
 	void JoinGame(int32 Index);
+
+	UFUNCTION(Exec)
+	void Ready();
+
+	UFUNCTION(Exec)
+	void QuickMatch(const FString& GameTypeName);
+
+	UFUNCTION(Exec)
+	void LeaveGame();
+
+	UFUNCTION(Server, Reliable)
+	void ServerSetReady(bool bReady);
 
 	USkirmishSessionSubsystem* GetSkirmishSession() const;
 

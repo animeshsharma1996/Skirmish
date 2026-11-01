@@ -8,6 +8,8 @@
 #include "Skirmish.h"
 #include "Online/SkirmishSessionSubsystem.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "Core/SkirmishPlayerState.h"
+#include "Core/SkirmishLobbyGameMode.h"
 
 void ASkirmishPlayerController::BeginPlay()
 {
@@ -116,3 +118,55 @@ void ASkirmishPlayerController::JoinGame(int32 Index)
 		SkirmishSession->JoinGame(Index);
 	}
 }
+
+void ASkirmishPlayerController::Ready()
+{
+	ASkirmishPlayerState* SkirmishPlayerState = GetPlayerState<ASkirmishPlayerState>();
+
+	if (SkirmishPlayerState)
+	{
+		ServerSetReady(!SkirmishPlayerState->IsReady());
+	}
+}
+
+void ASkirmishPlayerController::QuickMatch(const FString& GameTypeName)
+{
+	USkirmishSessionSubsystem* SkirmishSession = GetSkirmishSession();
+
+	if (SkirmishSession)
+	{
+		const bool bTeam = GameTypeName.Equals(TEXT("Team"), ESearchCase::IgnoreCase);
+		SkirmishSession->QuickMatch(bTeam ? ESkirmishGameType::Team : ESkirmishGameType::AllVsAll);
+	}
+}
+
+void ASkirmishPlayerController::LeaveGame()
+{
+	USkirmishSessionSubsystem* SkirmishSession = GetSkirmishSession();
+
+	if (SkirmishSession)
+	{
+		SkirmishSession->LeaveGame();
+	}
+}
+
+void ASkirmishPlayerController::ServerSetReady_Implementation(bool bReady)
+{
+	ASkirmishPlayerState* SkirmishPlayerState = GetPlayerState<ASkirmishPlayerState>();
+
+	if (!SkirmishPlayerState)
+	{
+		return;
+	}
+
+	SkirmishPlayerState->SetReady(bReady);
+
+	UWorld* World = GetWorld();
+	ASkirmishLobbyGameMode* LobbyGameMode = World ? World->GetAuthGameMode<ASkirmishLobbyGameMode>() : nullptr;
+
+	if (LobbyGameMode)
+	{
+		LobbyGameMode->PlayerReadyChanged();
+	}
+}
+

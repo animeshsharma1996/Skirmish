@@ -138,6 +138,7 @@ void ASkirmishCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
 	DOREPLIFETIME(ASkirmishCharacter, SkinMaterial);
+	DOREPLIFETIME(ASkirmishCharacter, OutlineMaterial);
 	DOREPLIFETIME(ASkirmishCharacter, Health);
 	DOREPLIFETIME(ASkirmishCharacter, CurrentWeapon);
 	DOREPLIFETIME_CONDITION(ASkirmishCharacter, bIsAiming, COND_SkipOwner);
@@ -211,6 +212,35 @@ void ASkirmishCharacter::ApplySkin()
 	{
 		GetMesh()->SetMaterial(0, SkinMaterial);
 	}
+}
+
+void ASkirmishCharacter::SetOutlineMaterial(UMaterialInterface* NewMaterial)
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	OutlineMaterial = NewMaterial;
+	ApplyOutline(); // OnRep_OutlineMaterial does not run on the server
+}
+
+void ASkirmishCharacter::OnRep_OutlineMaterial()
+{
+	ApplyOutline();
+}
+
+void ASkirmishCharacter::ApplyOutline()
+{
+	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+
+	if (!SkeletalMesh)
+	{
+		return;
+	}
+
+	// Null removes the outline (All vs All)
+	SkeletalMesh->SetOverlayMaterial(OutlineMaterial);
 }
 
 void ASkirmishCharacter::StartAiming()
@@ -377,6 +407,13 @@ float ASkirmishCharacter::TakeDamage(float DamageAmount, FDamageEvent const& Dam
 	const ASkirmishGameState* SkirmishGameState = World ? World->GetGameState<ASkirmishGameState>() : nullptr;
 
 	if (SkirmishGameState && !SkirmishGameState->CanDealDamage()) 
+	{
+		return 0.f;
+	}
+
+	const ASkirmishGameMode* SkirmishGameMode = World ? World->GetAuthGameMode<ASkirmishGameMode>() : nullptr;
+
+	if (SkirmishGameMode && !SkirmishGameMode->CanDamage(EventInstigator, GetController()))
 	{
 		return 0.f;
 	}

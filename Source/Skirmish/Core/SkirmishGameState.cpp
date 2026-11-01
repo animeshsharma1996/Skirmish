@@ -11,6 +11,9 @@ void ASkirmishGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
     DOREPLIFETIME(ASkirmishGameState, Phase);
     DOREPLIFETIME(ASkirmishGameState, RemainingSeconds);
     DOREPLIFETIME(ASkirmishGameState, Winner);
+    DOREPLIFETIME(ASkirmishGameState, GameType);
+    DOREPLIFETIME(ASkirmishGameState, TeamScores);
+    DOREPLIFETIME(ASkirmishGameState, WinningTeam);
 }
 
 void ASkirmishGameState::SetPhase(ESkirmishMatchPhase NewPhase)
@@ -60,22 +63,44 @@ void ASkirmishGameState::MulticastElimination_Implementation(const FString& Kill
     }
 }
 
+FString ASkirmishGameState::GetTeamName(int32 TeamIndex)
+{
+    switch (TeamIndex)
+    {
+        case 0:
+        {
+            return TEXT("RED");
+        }
+        case 1:
+        {
+            return TEXT("BLUE");
+        }
+    }
+
+    return TEXT("NONE");
+}
+
 FString ASkirmishGameState::GetPhaseText() const
 {
     const FString Time = FString::Printf(TEXT("%d:%02d"), RemainingSeconds / 60, RemainingSeconds % 60);
 
     switch (Phase)
     {
-        case ESkirmishMatchPhase::Warmup :
+        case ESkirmishMatchPhase::Warmup:
         {
             return FString::Printf(TEXT("WARMUP  %s"), *Time);
         }
-        case ESkirmishMatchPhase::InProgress :
+        case ESkirmishMatchPhase::InProgress:
         {
             return Time;
         }
-        case ESkirmishMatchPhase::MatchOver :
+        case ESkirmishMatchPhase::MatchOver:
         {
+            if (IsTeamGame())
+            {
+                return WinningTeam == INDEX_NONE ? TEXT("DRAW") : FString::Printf(TEXT("%s TEAM WINS"), *GetTeamName(WinningTeam));
+            }
+
             return FString::Printf(TEXT("WINNER : %s"), Winner ? *Winner->GetPlayerName() : TEXT("Nobody"));
         }
     }
@@ -89,7 +114,9 @@ FString ASkirmishGameState::GetScoreboardText() const
 
     for (APlayerState* PlayerState : PlayerArray)
     {
-        if (ASkirmishPlayerState* SkirmishPlayerState = Cast<ASkirmishPlayerState>(PlayerState))
+        ASkirmishPlayerState* SkirmishPlayerState = Cast<ASkirmishPlayerState>(PlayerState);
+
+        if (SkirmishPlayerState)
         {
             Players.Add(SkirmishPlayerState);
         }
@@ -97,11 +124,23 @@ FString ASkirmishGameState::GetScoreboardText() const
 
     Players.Sort([](const ASkirmishPlayerState& A, const ASkirmishPlayerState& B) { return A.GetKills() > B.GetKills(); });
 
-    FString Result = TEXT("PLAYER   K / D\n");
+    FString Result;
+
+    if (IsTeamGame() && TeamScores.Num() >= 2)
+    {
+        Result += FString::Printf(TEXT("RED %d  -  %d BLUE\n"), TeamScores[0], TeamScores[1]);
+    }
+
+    Result += TEXT("PLAYER   K / D\n");
+
     for (const ASkirmishPlayerState* SkirmishPlayerState : Players)
     {
-        Result += FString::Printf(TEXT("%s   %d / %d\n"), *SkirmishPlayerState->GetPlayerName(), SkirmishPlayerState->GetKills(), SkirmishPlayerState->GetDeaths());
+        const FString TeamTag = IsTeamGame() ? FString::Printf(TEXT("[%s] "), *GetTeamName(SkirmishPlayerState->GetTeamIndex())) : FString();
+
+        Result += FString::Printf(TEXT("%s%s   %d / %d\n"), *TeamTag, *SkirmishPlayerState->GetPlayerName(),
+            SkirmishPlayerState->GetKills(), SkirmishPlayerState->GetDeaths());
     }
+
     return Result;
 }
 
