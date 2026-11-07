@@ -19,10 +19,6 @@ class ASkirmishWeapon;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
-/**
- *  A simple player-controllable third person character
- *  Implements a controllable orbiting camera
- */
 UCLASS(config=Game)
 class ASkirmishCharacter : public ACharacter, public IPickupReceiver, public IWeaponHolder
 {
@@ -36,6 +32,9 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<USkeletalMeshComponent> VisualMesh;
 
 	UFUNCTION(Client, Reliable)
 	void ClientShowHitMarker(const FString& TargetName);
@@ -68,6 +67,8 @@ public:
 	void Heal(int32 Amount);
 	bool IsDead() const { return Health <= 0.f; }
 	void GiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass);
+
+	USkeletalMeshComponent* GetDisplayMesh() const;
 
 	FORCEINLINE class USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }

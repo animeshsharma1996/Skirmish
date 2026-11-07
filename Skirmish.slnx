@@ -10,14 +10,14 @@
     <Platform Name="Win64-arm64ec" />
   </Configurations>
   <Folder Name="/Engine/">
-    <Project Path="Intermediate/ProjectFiles/UE5.vcxproj" Id="cbc80687-c958-3ade-98dc-dfd76496ca46">
+    <Project Path="Intermediate/ProjectFiles/UE5.vcxproj" Id="e6b63fcc-0f56-399f-8075-db2fad8df49d">
       <BuildType Project="BuiltWithUnrealBuildTool" />
       <Platform Project="Win64" />
       <Build Project="false" />
     </Project>
   </Folder>
   <Folder Name="/Games/">
-    <Project Path="Intermediate/ProjectFiles/Skirmish.vcxproj" Id="0c817ce7-73b8-30c4-982f-11aea5ad6366">
+    <Project Path="Intermediate/ProjectFiles/Skirmish.vcxproj" Id="098806cc-1c6f-3055-9f4a-11f187237aac">
       <BuildType Solution="DebugGame Editor|Win64" Project="DebugGame_Editor" />
       <BuildType Solution="DebugGame Editor|Win64-arm64" Project="Win64_arm64_DebugGame_Editor" />
       <BuildType Solution="DebugGame Editor|Win64-arm64ec" Project="Win64_arm64ec_DebugGame_Editor" />

@@ -72,11 +72,37 @@ ASkirmishCharacter::ASkirmishCharacter()
 		StatusLabel->SetTextRenderColor(FColor::Yellow);
 		StatusLabel->SetText(FText::FromString(" "));
 	}
+
+	// Montages play on the hidden mannequin - the VisualMesh copies its pose
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+
+	if (CharacterMesh)
+	{
+		CharacterMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	}
+
+	VisualMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("VisualMesh"));
+
+	if (VisualMesh && CharacterMesh)
+	{
+		VisualMesh->SetupAttachment(CharacterMesh);
+		VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		VisualMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	}
 }
 
 void ASkirmishCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	USkeletalMeshComponent* CharacterMesh = GetMesh();
+
+	if (CharacterMesh && VisualMesh && VisualMesh->GetSkeletalMeshAsset())
+	{
+		CharacterMesh->SetVisibility(false);
+
+		VisualMesh->AddTickPrerequisiteComponent(CharacterMesh);
+	}
 
 	if (HasAuthority())
 	{
@@ -206,11 +232,14 @@ void ASkirmishCharacter::OnRep_SkinMaterial()
 {
 	ApplySkin();
 }
+
 void ASkirmishCharacter::ApplySkin()
 {
-	if (SkinMaterial)
+	USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
+
+	if (SkinMaterial && DisplayMesh)
 	{
-		GetMesh()->SetMaterial(0, SkinMaterial);
+		DisplayMesh->SetMaterial(0, SkinMaterial);
 	}
 }
 
@@ -232,15 +261,24 @@ void ASkirmishCharacter::OnRep_OutlineMaterial()
 
 void ASkirmishCharacter::ApplyOutline()
 {
-	USkeletalMeshComponent* SkeletalMesh = GetMesh();
+	USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
 
-	if (!SkeletalMesh)
+	if (!DisplayMesh)
 	{
 		return;
 	}
 
-	// Null removes the outline (All vs All)
-	SkeletalMesh->SetOverlayMaterial(OutlineMaterial);
+	DisplayMesh->SetOverlayMaterial(OutlineMaterial);
+}
+
+USkeletalMeshComponent* ASkirmishCharacter::GetDisplayMesh() const
+{
+	if (VisualMesh && VisualMesh->GetSkeletalMeshAsset())
+	{
+		return VisualMesh;
+	}
+
+	return GetMesh();
 }
 
 void ASkirmishCharacter::StartAiming()
@@ -482,22 +520,21 @@ void ASkirmishCharacter::UpdateLabel()
 
 void ASkirmishCharacter::OnRep_CurrentWeapon()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[%s] OnRep_CurrentWeapon: %s"),
-		HasAuthority() ? TEXT("Server") : TEXT("Client"), *GetNameSafe(CurrentWeapon));
+	UE_LOG(LogTemp, Warning, TEXT("[%s] OnRep_CurrentWeapon: %s"), HasAuthority() ? TEXT("Server") : TEXT("Client"), *GetNameSafe(CurrentWeapon));
 
 	AttachWeapon();
 }
 
 void ASkirmishCharacter::AttachWeapon()
 {
-	USkeletalMeshComponent* CharacterMesh = GetMesh();
+	USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
 
-	if (!CurrentWeapon || !CharacterMesh)
+	if (!CurrentWeapon || !DisplayMesh)
 	{
 		return;
 	}
 
-	CurrentWeapon->AttachToComponent(CharacterMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponSocketName);
+	CurrentWeapon->AttachToComponent(DisplayMesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale, WeaponSocketName);
 	CurrentWeapon->NotifyAmmoChanged();
 	CurrentWeapon->OnWeaponFired.AddUniqueDynamic(this, &ASkirmishCharacter::PlayFireAnimation);
 	CurrentWeapon->OnReloadStarted.AddUniqueDynamic(this, &ASkirmishCharacter::PlayReloadAnimation);
@@ -682,10 +719,12 @@ void ASkirmishCharacter::HandleDeath()
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
-	if (USkeletalMeshComponent* CharacterMesh = GetMesh())
+	USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
+
+	if (DisplayMesh)
 	{
-		CharacterMesh->SetCollisionProfileName(TEXT("Ragdoll"));
-		CharacterMesh->SetSimulatePhysics(true);
+		DisplayMesh->SetCollisionProfileName(TEXT("Ragdoll"));
+		DisplayMesh->SetSimulatePhysics(true);
 	}
 
 	if (StatusLabel)
