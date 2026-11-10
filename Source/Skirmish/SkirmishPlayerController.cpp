@@ -109,6 +109,16 @@ void ASkirmishPlayerController::FindGames()
 	}
 }
 
+void ASkirmishPlayerController::FindServers()
+{
+	USkirmishSessionSubsystem* SkirmishSession = GetSkirmishSession();
+
+	if (SkirmishSession)
+	{
+		SkirmishSession->FindServers();
+	}
+}
+
 void ASkirmishPlayerController::JoinGame(int32 Index)
 {
 	USkirmishSessionSubsystem* SkirmishSession = GetSkirmishSession();

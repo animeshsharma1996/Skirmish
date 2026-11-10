@@ -133,8 +133,12 @@ void ASkirmishWeapon::Fire(const FVector& AimTarget, bool bAiming)
 
 void ASkirmishWeapon::MulticastFireEffects_Implementation(FVector_NetQuantize TraceEnd, bool bHit)
 {
-    UE_LOG(LogTemp, Warning, TEXT("[%s] MulticastFireEffects"),
-        HasAuthority() ? TEXT("Server") : TEXT("Client"));
+    UE_LOG(LogTemp, Warning, TEXT("[%s] MulticastFireEffects"), HasAuthority() ? TEXT("Server") : TEXT("Client"));
+
+    if (GetNetMode() == NM_DedicatedServer)
+    {
+        return;
+    }
 
     UWorld* World = GetWorld();
     if (!World || !Muzzle)

@@ -47,6 +47,9 @@ public:
     void FindGames();
 
     UFUNCTION(BlueprintCallable, Category = "Online")
+    void FindServers();
+
+    UFUNCTION(BlueprintCallable, Category = "Online")
     void JoinGame(int32 Index);
 
     UFUNCTION(BlueprintPure, Category = "Online")
@@ -58,10 +61,13 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Online")
     void LeaveGame();
 
+    void RegisterDedicatedServer(ESkirmishGameType GameType, int32 MaxPlayers);
+
 private:
     TSharedPtr<FOnlineSessionSearch> SessionSearch;
     TFunction<void()> AfterDestroy;
     bool bQuickMatchPending = false;
+    bool bQuickMatchServers = false;
 
     ESkirmishGameType HostedGameType = ESkirmishGameType::AllVsAll;
     ESkirmishGameType QuickMatchGameType = ESkirmishGameType::AllVsAll;
@@ -78,7 +84,7 @@ private:
     IOnlineIdentityPtr GetIdentityInterface() const;
     IOnlineSessionPtr GetSessionInterface() const;
 
-    void StartSearch(bool bFilterGameType, ESkirmishGameType GameType);
+    void StartSearch(bool bFilterGameType, ESkirmishGameType GameType, bool bDedicatedServers = false);
     void FinishQuickMatch();
     void ClearSessionThen(TFunction<void()> Next);
     void HandleDestroySessionComplete(FName SessionName, bool bWasSuccessful);

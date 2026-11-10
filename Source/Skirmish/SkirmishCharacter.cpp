@@ -721,7 +721,7 @@ void ASkirmishCharacter::HandleDeath()
 
 	USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
 
-	if (DisplayMesh)
+	if (DisplayMesh && GetNetMode() != NM_DedicatedServer)
 	{
 		DisplayMesh->SetCollisionProfileName(TEXT("Ragdoll"));
 		DisplayMesh->SetSimulatePhysics(true);

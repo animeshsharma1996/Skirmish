@@ -21,6 +21,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage) override;
 	virtual void GenericPlayerInitialization(AController* NewPlayer) override;
+	virtual void Logout(AController* Exiting) override;
 
 	bool CanDamage(AController* InstigatorController, AController* VictimController) const;
 
@@ -52,6 +53,9 @@ protected :
 
 	UPROPERTY(EditDefaultsOnly, Category = "Match")
 	int32 TeamKillLimit = 20;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Match")
+	int32 MinPlayersToStart = 1;
 
 	void RespawnPlayer(TWeakObjectPtr<AController> Controller);
 

@@ -14,6 +14,7 @@ void ASkirmishGameState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
     DOREPLIFETIME(ASkirmishGameState, GameType);
     DOREPLIFETIME(ASkirmishGameState, TeamScores);
     DOREPLIFETIME(ASkirmishGameState, WinningTeam);
+    DOREPLIFETIME(ASkirmishGameState, bWaitingForPlayers);
 }
 
 void ASkirmishGameState::SetPhase(ESkirmishMatchPhase NewPhase)
@@ -88,6 +89,11 @@ FString ASkirmishGameState::GetPhaseText() const
     {
         case ESkirmishMatchPhase::Warmup:
         {
+            if (bWaitingForPlayers)
+            {
+                return TEXT("WAITING FOR PLAYERS");
+            }
+
             return FString::Printf(TEXT("WARMUP  %s"), *Time);
         }
         case ESkirmishMatchPhase::InProgress:

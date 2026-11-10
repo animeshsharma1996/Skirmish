@@ -9,6 +9,8 @@
 namespace
 {
     const FName SkirmishGameTypeKey(TEXT("SKIRMISHGAMETYPE"));
+    const FName BucketIdKey(TEXT("OSSEOS_BUCKET_ID_ATTRIBUTE_KEY"));
+    const FString SkirmishBucketId(TEXT("Skirmish"));
 
     /** Reads the advertised game type from a search result, or INDEX_NONE if it is missing */
     int32 GetGameTypeValue(const FOnlineSessionSearchResult& SearchResult)
@@ -33,6 +35,11 @@ namespace
         Setting->Data.GetValue(Value);
 
         return Value;
+    }
+
+    int32 GetOpenSlots(const FOnlineSessionSearchResult& SearchResult)
+    {
+        return FMath::Max(SearchResult.Session.NumOpenPublicConnections, SearchResult.Session.NumOpenPrivateConnections);
     }
 }
 
@@ -217,6 +224,8 @@ void USkirmishSessionSubsystem::HostGame(ESkirmishGameType GameType, int32 MaxPl
 
         HostedGameType = GameType;
 
+        Settings.Set(BucketIdKey, SkirmishBucketId, EOnlineDataAdvertisementType::ViaOnlineService);
+
         CreateSessionHandle = SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(
             FOnCreateSessionCompleteDelegate::CreateUObject(this, &USkirmishSessionSubsystem::HandleCreateSessionComplete));
 
@@ -239,6 +248,11 @@ void USkirmishSessionSubsystem::HandleCreateSessionComplete(FName SessionName, b
 
     UE_LOG(LogTemp, Warning, TEXT("Create session : %s"), bWasSuccessful ? TEXT("success") : TEXT("failed"));
     OnHostComplete.Broadcast(bWasSuccessful);
+
+    if (IsRunningDedicatedServer())
+    {
+        return;
+    }
 
     if (!bWasSuccessful)
     {
@@ -273,9 +287,9 @@ void USkirmishSessionSubsystem::HandleFindSessionsComplete(bool bWasSuccessful)
 
             FSkirmishSessionResult SessionResult;
             SessionResult.Index = Index;
-            SessionResult.HostName = SearchResult.Session.OwningUserName;
+            SessionResult.HostName = SearchResult.Session.SessionSettings.bIsDedicated ? TEXT("Dedicated Server") : SearchResult.Session.OwningUserName;
             SessionResult.MaxPlayers = SearchResult.Session.SessionSettings.NumPublicConnections;
-            SessionResult.CurrentPlayers = SessionResult.MaxPlayers - SearchResult.Session.NumOpenPublicConnections;
+            SessionResult.CurrentPlayers = SessionResult.MaxPlayers - GetOpenSlots(SearchResult);
             SessionResult.PingMs = SearchResult.PingInMs;
 
             const bool bTeam = GetGameTypeValue(SearchResult) == static_cast<int32>(ESkirmishGameType::Team);
@@ -374,7 +388,13 @@ void USkirmishSessionSubsystem::FindGames()
     StartSearch(false, ESkirmishGameType::AllVsAll);
 }
 
-void USkirmishSessionSubsystem::StartSearch(bool bFilterGameType, ESkirmishGameType GameType)
+void USkirmishSessionSubsystem::FindServers()
+{
+    bQuickMatchPending = false;
+    StartSearch(false, ESkirmishGameType::AllVsAll, true);
+}
+
+void USkirmishSessionSubsystem::StartSearch(bool bFilterGameType, ESkirmishGameType GameType, bool bDedicatedServers)
 {
     IOnlineSessionPtr SessionInterface = GetSessionInterface();
 
@@ -389,7 +409,8 @@ void USkirmishSessionSubsystem::StartSearch(bool bFilterGameType, ESkirmishGameT
     SessionSearch = MakeShared<FOnlineSessionSearch>();
     SessionSearch->MaxSearchResults = 20;
     SessionSearch->bIsLanQuery = false;
-    SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+    SessionSearch->QuerySettings.Set(SEARCH_LOBBIES, !bDedicatedServers, EOnlineComparisonOp::Equals);
+    SessionSearch->QuerySettings.Set(BucketIdKey, SkirmishBucketId, EOnlineComparisonOp::Equals);
 
     if (bFilterGameType)
     {
@@ -409,8 +430,9 @@ void USkirmishSessionSubsystem::StartSearch(bool bFilterGameType, ESkirmishGameT
 void USkirmishSessionSubsystem::QuickMatch(ESkirmishGameType GameType)
 {
     bQuickMatchPending = true;
+    bQuickMatchServers = true; // Dedicated servers first
     QuickMatchGameType = GameType;
-    StartSearch(true, GameType);
+    StartSearch(true, GameType, true);
 }
 
 void USkirmishSessionSubsystem::FinishQuickMatch()
@@ -425,13 +447,22 @@ void USkirmishSessionSubsystem::FinishQuickMatch()
 
             const int32 GameTypeValue = GetGameTypeValue(SearchResult);
 
-            if (SearchResult.Session.NumOpenPublicConnections > 0 && GameTypeValue == static_cast<int32>(QuickMatchGameType))
+            if (GetOpenSlots(SearchResult) > 0 && GameTypeValue == static_cast<int32>(QuickMatchGameType))
             {
                 UE_LOG(LogTemp, Warning, TEXT("Quick Match : joining %s"), *SearchResult.Session.OwningUserName);
                 JoinGame(Index);
                 return;
             }
         }
+    }
+
+    // No free dedicated server - try player-hosted games next
+    if (bQuickMatchServers)
+    {
+        bQuickMatchServers = false;
+        bQuickMatchPending = true;
+        StartSearch(true, QuickMatchGameType, false);
+        return;
     }
 
     UE_LOG(LogTemp, Warning, TEXT("Quick Match : no game found - hosting one"));
@@ -450,3 +481,40 @@ void USkirmishSessionSubsystem::LeaveGame()
         }
     });
 }
+
+void USkirmishSessionSubsystem::RegisterDedicatedServer(ESkirmishGameType GameType, int32 MaxPlayers)
+{
+    IOnlineSessionPtr SessionInterface = GetSessionInterface();
+
+    if (!IsRunningDedicatedServer() || !SessionInterface.IsValid())
+    {
+        return;
+    }
+
+    if (SessionInterface->GetNamedSession(NAME_GameSession))
+    {
+        return;
+    }
+
+    FOnlineSessionSettings Settings;
+    Settings.NumPublicConnections = MaxPlayers;
+    Settings.bIsDedicated = true;
+    Settings.bShouldAdvertise = true;
+    Settings.bUsesPresence = false;          
+    Settings.bUseLobbiesIfAvailable = false; 
+    Settings.bAllowJoinInProgress = true;
+    Settings.bIsLANMatch = false;
+    Settings.Set(SkirmishGameTypeKey, static_cast<int32>(GameType), EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+    Settings.Set(BucketIdKey, SkirmishBucketId, EOnlineDataAdvertisementType::ViaOnlineService);
+
+    HostedGameType = GameType;
+
+    CreateSessionHandle = SessionInterface->AddOnCreateSessionCompleteDelegate_Handle(FOnCreateSessionCompleteDelegate::CreateUObject(this, &USkirmishSessionSubsystem::HandleCreateSessionComplete));
+
+    if (!SessionInterface->CreateSession(0, NAME_GameSession, Settings))
+    {
+        SessionInterface->ClearOnCreateSessionCompleteDelegate_Handle(CreateSessionHandle);
+        UE_LOG(LogTemp, Error, TEXT("RegisterDedicatedServer : CreateSession failed"));
+    }
+}
+

@@ -41,6 +41,9 @@ protected:
 	void FindGames();
 
 	UFUNCTION(Exec)
+	void FindServers();
+
+	UFUNCTION(Exec)
 	void JoinGame(int32 Index);
 
 	UFUNCTION(Exec)

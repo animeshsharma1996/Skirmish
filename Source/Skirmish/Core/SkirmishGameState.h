@@ -45,6 +45,9 @@ public:
     UPROPERTY(Replicated, BlueprintReadOnly, Category = "Match")
     int32 WinningTeam = INDEX_NONE;
 
+    UPROPERTY(Replicated, BlueprintReadOnly, Category = "Match")
+    bool bWaitingForPlayers = false;
+
     UFUNCTION(NetMulticast, Reliable)
     void MulticastElimination(const FString& KillerName, const FString& VictimName);
 

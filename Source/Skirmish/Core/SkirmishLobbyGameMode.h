@@ -20,7 +20,7 @@ public:
 
 protected:
     UPROPERTY(EditDefaultsOnly, Category = "Lobby")
-    FString MatchMapPath = TEXT("/Game/ThirdPerson/Lvl_ThirdPerson");
+    FString MatchMapPath = TEXT("/Game/Maps/StylizedEgypt");
 
     UPROPERTY(EditDefaultsOnly, Category = "Lobby")
     int32 MinPlayers = 2;

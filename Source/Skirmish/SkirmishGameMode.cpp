@@ -3,6 +3,8 @@
 #include "SkirmishGameMode.h"
 #include "Core/SkirmishPlayerState.h"
 #include "Kismet/GameplayStatics.h"
+#include "Online/SkirmishSessionSubsystem.h"
+#include "GameFramework/GameSession.h"
 #include "SkirmishCharacter.h"
 
 ASkirmishGameMode::ASkirmishGameMode()
@@ -19,6 +21,17 @@ void ASkirmishGameMode::BeginPlay()
 
     EnterPhase(ESkirmishMatchPhase::Warmup);
     GetWorldTimerManager().SetTimer(MatchTimer, this, &ASkirmishGameMode::TickMatchTimer, 1.f, true);
+
+    if (GetNetMode() == NM_DedicatedServer)
+    {
+        UGameInstance* GameInstance = GetGameInstance();
+        USkirmishSessionSubsystem* SkirmishSession = GameInstance ? GameInstance->GetSubsystem<USkirmishSessionSubsystem>() : nullptr;
+
+        if (SkirmishSession)
+        {
+            SkirmishSession->RegisterDedicatedServer(GameType, GameSession ? GameSession->MaxPlayers : 8);
+        }
+    }
 }
 
 void ASkirmishGameMode::RestartPlayer(AController* NewPlayer)
@@ -156,6 +169,15 @@ void ASkirmishGameMode::TickMatchTimer()
 
     if (!SkirmishGameState) 
     {
+        return;
+    }
+
+    const bool bWaiting = SkirmishGameState->GetPhase() == ESkirmishMatchPhase::Warmup && GetNumPlayers() < MinPlayersToStart;
+    SkirmishGameState->bWaitingForPlayers = bWaiting;
+
+    if (bWaiting)
+    {
+        SkirmishGameState->RemainingSeconds = WarmupTime;
         return;
     }
 
@@ -309,6 +331,27 @@ void ASkirmishGameMode::GenericPlayerInitialization(AController* NewPlayer)
         SkirmishPlayerState->SetSkinMaterial(SkinMaterials[SkinCount % SkinMaterials.Num()]);
         SkinCount++;
     }
+}
+
+void ASkirmishGameMode::Logout(AController* Exiting)
+{
+    Super::Logout(Exiting);
+
+    if (GetNumPlayers() > 0)
+    {
+        return;
+    }
+
+    ASkirmishGameState* SkirmishGameState = GetGameState<ASkirmishGameState>();
+
+    if (SkirmishGameState)
+    {
+        SkirmishGameState->TeamScores.Init(0, 2);
+        SkirmishGameState->WinningTeam = INDEX_NONE;
+    }
+
+    SkinCount = 0;
+    EnterPhase(ESkirmishMatchPhase::Warmup);
 }
 
 int32 ASkirmishGameMode::PickTeam() const
