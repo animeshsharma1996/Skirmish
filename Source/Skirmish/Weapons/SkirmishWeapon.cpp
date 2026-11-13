@@ -11,19 +11,32 @@ ASkirmishWeapon::ASkirmishWeapon()
     PrimaryActorTick.bCanEverTick = false;
     bReplicates = true;
 
+    Root = CreateDefaultSubobject<USceneComponent>(TEXT("Root"));
+    RootComponent = Root;
+
+    AimPivot = CreateDefaultSubobject<USceneComponent>(TEXT("AimPivot"));
+    AimPivot->SetupAttachment(Root);
+
     Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
 
     if (Mesh)
     {
+        Mesh->SetupAttachment(AimPivot);
         Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        RootComponent = Mesh;
     }
 
     Muzzle = CreateDefaultSubobject<USceneComponent>(TEXT("Muzzle"));
 
     if (Muzzle)
     {
-        Muzzle->SetupAttachment(RootComponent);
+        Muzzle->SetupAttachment(Mesh);
+    }
+
+    FirstPersonView = CreateDefaultSubobject<USceneComponent>(TEXT("FirstPersonView"));
+
+    if (FirstPersonView)
+    {
+        FirstPersonView->SetupAttachment(Mesh);
     }
 }
 
@@ -250,3 +263,54 @@ void ASkirmishWeapon::OnRep_IsReloading()
         OnReloadStarted.Broadcast();
     }
 }
+
+void ASkirmishWeapon::UpdateAimCorrection(const FVector& AimTarget, float DeltaSeconds)
+{
+    USceneComponent* Hand = Root ? Root->GetAttachParent() : nullptr;
+
+    if (!Hand || !AimPivot || !Mesh || !Muzzle)
+    {
+        return;
+    }
+
+    // Where the hand holds the weapon this frame
+    const FTransform HandTransform = Hand->GetSocketTransform(Root->GetAttachSocketName());
+
+    // Where the muzzle would point without any correction
+    const FTransform MuzzleTransform = Muzzle->GetRelativeTransform() * Mesh->GetRelativeTransform() * HandTransform;
+    const FVector MuzzleForward = MuzzleTransform.GetRotation().GetForwardVector();
+    const FVector ToTarget = (AimTarget - MuzzleTransform.GetLocation()).GetSafeNormal();
+
+    FQuat AimCorrection = FQuat::FindBetweenNormals(MuzzleForward, ToTarget);
+    const float Angle = FMath::RadiansToDegrees(AimCorrection.GetAngle());
+
+    // A big turn means the character faces away (running in third person) - fade the correction out
+    const bool bCanCorrect = Angle <= MaxAimCorrection;
+    AimCorrectionAlpha = FMath::FInterpTo(AimCorrectionAlpha, bCanCorrect ? 1.f : 0.f, DeltaSeconds, AimCorrectionFadeSpeed);
+
+    // Never turn more than MaxAimCorrection, and never lag behind the target - so the weapon never drifts
+    const float Limit = Angle > MaxAimCorrection ? MaxAimCorrection / Angle : 1.f;
+    AimCorrection = FQuat::Slerp(FQuat::Identity, AimCorrection, Limit * AimCorrectionAlpha);
+
+    // Turn around the hand : the pivot's world rotation becomes AimCorrection * HandRotation
+    const FQuat HandRotation = HandTransform.GetRotation();
+    AimPivot->SetRelativeLocationAndRotation(FVector::ZeroVector, HandRotation.Inverse() * AimCorrection * HandRotation);
+}
+
+void ASkirmishWeapon::UpdateFirstPersonView(const FTransform& CameraTransform)
+{
+    if (!AimPivot || !Mesh || !FirstPersonView || !Muzzle)
+    {
+        return;
+    }
+
+    // Where the eye sits inside the pivot, looking the same way as the barrel (the Muzzle)
+    const FTransform MeshInPivot = Mesh->GetRelativeTransform();
+    const FVector ViewLocation = (FirstPersonView->GetRelativeTransform() * MeshInPivot).GetLocation();
+    const FQuat ViewRotation = (Muzzle->GetRelativeTransform() * MeshInPivot).GetRotation();
+    const FTransform ViewInPivot(ViewRotation, ViewLocation);
+
+    // Place the pivot so the view point lands exactly on the camera
+    AimPivot->SetWorldTransform(ViewInPivot.Inverse() * CameraTransform);
+}
+

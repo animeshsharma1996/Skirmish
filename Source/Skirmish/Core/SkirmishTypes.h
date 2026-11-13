@@ -10,6 +10,13 @@ enum class ESkirmishGameType : uint8
     Team
 };
 
+UENUM(BlueprintType)
+enum class ESkirmishCameraMode : uint8
+{
+    ThirdPerson,
+    FirstPerson
+};
+
 /** One game found by a search - what a server browser row shows */
 USTRUCT(BlueprintType)
 struct FSkirmishSessionResult

@@ -7,6 +7,7 @@
 #include "Logging/LogMacros.h"
 #include "Actors/PickupReceiver.h"
 #include "Weapons/WeaponHolder.h"
+#include "Core/SkirmishTypes.h"
 #include "SkirmishCharacter.generated.h"
 
 class USpringArmComponent;
@@ -36,6 +37,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<USkeletalMeshComponent> VisualMesh;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UCameraComponent> FirstPersonCamera;
+
 	UFUNCTION(Client, Reliable)
 	void ClientShowHitMarker(const FString& TargetName);
 
@@ -58,7 +62,6 @@ public:
 	virtual void ReceiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass) override;
 	virtual float TakeDamage(float DamageAmount, struct FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser) override;
 	virtual void Destroyed() override;
-
 	virtual ASkirmishWeapon* GetCurrentWeapon() const override { return CurrentWeapon; }
 	virtual bool IsAiming() const override { return bIsAiming; }
 
@@ -67,6 +70,8 @@ public:
 	void Heal(int32 Amount);
 	bool IsDead() const { return Health <= 0.f; }
 	void GiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass);
+	bool IsFirstPerson() const { return GetCameraMode() == ESkirmishCameraMode::FirstPerson; }
+	ESkirmishCameraMode GetCameraMode() const;
 
 	USkeletalMeshComponent* GetDisplayMesh() const;
 
@@ -74,6 +79,8 @@ public:
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	
 protected:
+	bool bDeathHandled = false;
+	ESkirmishCameraMode AppliedCameraMode = ESkirmishCameraMode::ThirdPerson;
 
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* JumpAction;
@@ -97,10 +104,7 @@ protected:
 	TObjectPtr<UInputAction> ReloadAction;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UInputAction> WeaponOneAction;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UInputAction> WeaponTwoAction;
+	TObjectPtr<UInputAction> CycleWeaponAction;
 
 	UPROPERTY(VisibleAnywhere, Category = "Score")
 	TObjectPtr<UTextRenderComponent> StatusLabel;
@@ -155,7 +159,12 @@ protected:
 	UPROPERTY(ReplicatedUsing = OnRep_CurrentWeapon, VisibleAnywhere, Category = "Weapon")
 	TObjectPtr<ASkirmishWeapon> CurrentWeapon;
 
-	bool bDeathHandled = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInputAction> ToggleCameraAction;
+
+	/** Hidden for the owner in first person, so the camera is not inside the head */
+	UPROPERTY(EditDefaultsOnly, Category = "Camera")
+	TArray<FName> FirstPersonHiddenBones = { TEXT("head") };
 
 	UFUNCTION()
 	void PlayFireAnimation();
@@ -172,8 +181,9 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerReload();
 
+	/** +1 for the next weapon, -1 for the previous one */
 	UFUNCTION(Server, Reliable)
-	void ServerEquipWeapon(int32 Index);
+	void ServerCycleWeapon(int8 Step);
 
 	UFUNCTION()
 	void HandleWeaponHit(AActor* HitActor, FVector Location);
@@ -210,10 +220,13 @@ protected:
 	void StartFire();
 	void StopFire();
 	void Reload();
-	void SelectWeaponOne();
-	void SelectWeaponTwo();
+	void CycleWeapon(const FInputActionValue& Value);
 	void EquipWeapon(int32 Index);
+	void ToggleCameraMode();
+	void ApplyCameraMode(ESkirmishCameraMode NewMode);
 
+	UCameraComponent* GetActiveCamera() const;
+	FVector GetWeaponAimTarget() const;
 	FVector GetAimTarget() const;
 	FTimerHandle AutoFireTimer;
 	

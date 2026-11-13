@@ -1,8 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "SkirmishCharacter.h"
-#include "Actors/SkirmishProjectile.h"
-#include "Engine/LocalPlayer.h"
 #include "Engine/DamageEvents.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -10,7 +8,6 @@
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
-#include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "Skirmish.h"
 #include "Net/UnrealNetwork.h"
@@ -19,15 +16,18 @@
 #include "SkirmishGameMode.h"
 #include "Core/SkirmishGameState.h"
 #include "Weapons/SkirmishWeapon.h"
-#include "Animation/SkirmishAnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Core/SkirmishPlayerState.h"
 
 ASkirmishCharacter::ASkirmishCharacter()
 {
+	// Tick after physics, when this frame's animation is finished
+	PrimaryActorTick.TickGroup = TG_PostPhysics;
+
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
 		
 	bUseControllerRotationPitch = false;
-	bUseControllerRotationYaw = true;
+	bUseControllerRotationYaw = true; // Always face where the camera looks, like Fortnite
 	bUseControllerRotationRoll = false;
 
 	UCharacterMovementComponent* Movement = GetCharacterMovement();
@@ -35,7 +35,7 @@ ASkirmishCharacter::ASkirmishCharacter()
 	if(Movement)
 	{
 		Movement->bOrientRotationToMovement = false;
-		Movement->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
+		Movement->bUseControllerDesiredRotation = false;
 		Movement->JumpZVelocity = 500.f;
 		Movement->AirControl = 0.35f;
 		Movement->MaxWalkSpeed = 500.f;
@@ -89,6 +89,17 @@ ASkirmishCharacter::ASkirmishCharacter()
 		VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		VisualMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	}
+
+	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
+
+	if (FirstPersonCamera)
+	{
+		// A steady eye point - only the mouse turns it
+		FirstPersonCamera->SetupAttachment(RootComponent);
+		FirstPersonCamera->SetRelativeLocation(FVector(0.f, 0.f, BaseEyeHeight));
+		FirstPersonCamera->bUsePawnControlRotation = true;
+		FirstPersonCamera->SetAutoActivate(false);
+	}
 }
 
 void ASkirmishCharacter::BeginPlay()
@@ -119,10 +130,29 @@ void ASkirmishCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 
-	if (IsLocallyControlled() && FollowCamera)
+	if (IsLocallyControlled())
 	{
-		const float TargetFOV = bIsAiming ? AimFOV : DefaultFOV;
-		FollowCamera->SetFieldOfView(FMath::FInterpTo(FollowCamera->FieldOfView, TargetFOV, DeltaSeconds, FOVInterpSpeed));
+		// Also catches a respawn : the new character reads the mode from the Player State
+		const ESkirmishCameraMode CameraMode = GetCameraMode();
+
+		if (CameraMode != AppliedCameraMode)
+		{
+			ApplyCameraMode(CameraMode);
+		}
+
+		UCameraComponent* ActiveCamera = GetActiveCamera();
+
+		if (ActiveCamera)
+		{
+			const float TargetFOV = bIsAiming ? AimFOV : DefaultFOV;
+			ActiveCamera->SetFieldOfView(FMath::FInterpTo(ActiveCamera->FieldOfView, TargetFOV, DeltaSeconds, FOVInterpSpeed));
+		}
+	}
+
+	// Cosmetic, so a dedicated server skips it
+	if (CurrentWeapon && GetNetMode() != NM_DedicatedServer)
+	{
+		CurrentWeapon->UpdateAimCorrection(GetWeaponAimTarget(), DeltaSeconds);
 	}
 }
 
@@ -140,8 +170,8 @@ void ASkirmishCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ASkirmishCharacter::StartFire);
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &ASkirmishCharacter::StopFire);
 		EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started, this, &ASkirmishCharacter::Reload);
-		EnhancedInputComponent->BindAction(WeaponOneAction, ETriggerEvent::Started, this, &ASkirmishCharacter::SelectWeaponOne);
-		EnhancedInputComponent->BindAction(WeaponTwoAction, ETriggerEvent::Started, this, &ASkirmishCharacter::SelectWeaponTwo);
+		EnhancedInputComponent->BindAction(CycleWeaponAction, ETriggerEvent::Triggered, this, &ASkirmishCharacter::CycleWeapon);
+		EnhancedInputComponent->BindAction(ToggleCameraAction, ETriggerEvent::Started, this, &ASkirmishCharacter::ToggleCameraMode);
 	}
 	else
 	{
@@ -281,6 +311,79 @@ USkeletalMeshComponent* ASkirmishCharacter::GetDisplayMesh() const
 	return GetMesh();
 }
 
+ESkirmishCameraMode ASkirmishCharacter::GetCameraMode() const
+{
+	const ASkirmishPlayerState* SkirmishPlayerState = GetPlayerState<ASkirmishPlayerState>();
+
+	if (!SkirmishPlayerState)
+	{
+		return ESkirmishCameraMode::ThirdPerson;
+	}
+
+	return SkirmishPlayerState->GetCameraMode();
+}
+
+UCameraComponent* ASkirmishCharacter::GetActiveCamera() const
+{
+	if (IsFirstPerson() && FirstPersonCamera)
+	{
+		return FirstPersonCamera;
+	}
+
+	return FollowCamera;
+}
+
+void ASkirmishCharacter::ToggleCameraMode()
+{
+	ASkirmishPlayerState* SkirmishPlayerState = GetPlayerState<ASkirmishPlayerState>();
+
+	if (!SkirmishPlayerState)
+	{
+		return;
+	}
+
+	const ESkirmishCameraMode NewMode = IsFirstPerson() ? ESkirmishCameraMode::ThirdPerson : ESkirmishCameraMode::FirstPerson;
+
+	// Only this player needs to know - nothing is sent to the server
+	SkirmishPlayerState->SetCameraMode(NewMode);
+}
+
+void ASkirmishCharacter::ApplyCameraMode(ESkirmishCameraMode NewMode)
+{
+	AppliedCameraMode = NewMode;
+
+	const bool bFirstPerson = NewMode == ESkirmishCameraMode::FirstPerson;
+
+	if (FollowCamera)
+	{
+		FollowCamera->SetActive(!bFirstPerson);
+	}
+
+	if (FirstPersonCamera)
+	{
+		FirstPersonCamera->SetActive(bFirstPerson);
+	}
+
+	USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
+
+	if (!DisplayMesh)
+	{
+		return;
+	}
+
+	for (const FName& BoneName : FirstPersonHiddenBones)
+	{
+		if (bFirstPerson)
+		{
+			DisplayMesh->HideBoneByName(BoneName, EPhysBodyOp::PBO_None);
+		}
+		else
+		{
+			DisplayMesh->UnHideBoneByName(BoneName);
+		}
+	}
+}
+
 void ASkirmishCharacter::StartAiming()
 {
 	SetAiming(true);
@@ -326,16 +429,30 @@ void ASkirmishCharacter::ApplyAimingState()
 	}
 }
 
+FVector ASkirmishCharacter::GetWeaponAimTarget() const
+{
+	// The owner knows exactly what is under the crosshair
+	if (IsLocallyControlled())
+	{
+		return GetAimTarget();
+	}
+
+	// Everyone else : a point far along where this player is looking
+	return GetPawnViewLocation() + GetBaseAimRotation().Vector() * 3000.f;
+}
+
 FVector ASkirmishCharacter::GetAimTarget() const
 {
 	UWorld* World = GetWorld();
-	if (!World || !FollowCamera)
+	UCameraComponent* ActiveCamera = GetActiveCamera();
+
+	if (!World || !ActiveCamera)
 	{
 		return GetActorLocation() + GetActorForwardVector() * 10000.f;
 	}
 
-	const FVector Start = FollowCamera->GetComponentLocation();
-	const FVector End = Start + FollowCamera->GetForwardVector() * 10000.f;
+	const FVector Start = ActiveCamera->GetComponentLocation();
+	const FVector End = Start + ActiveCamera->GetForwardVector() * 10000.f;
 
 	FCollisionQueryParams Params;
 	Params.AddIgnoredActor(this);
@@ -370,8 +487,7 @@ void ASkirmishCharacter::StopFire()
 
 void ASkirmishCharacter::Fire()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[%s] Fire: Weapon=%s Ammo=%d"),
-		HasAuthority() ? TEXT("Server") : TEXT("Client"),
+	UE_LOG(LogTemp, Warning, TEXT("[%s] Fire: Weapon=%s Ammo=%d"), HasAuthority() ? TEXT("Server") : TEXT("Client"),
 		*GetNameSafe(CurrentWeapon), CurrentWeapon ? CurrentWeapon->GetAmmo() : -1);
 
 	if (!CurrentWeapon)
@@ -657,26 +773,36 @@ void ASkirmishCharacter::ReceiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass)
 	GiveWeapon(WeaponClass);
 }
 
-void ASkirmishCharacter::ServerEquipWeapon_Implementation(int32 Index)
+void ASkirmishCharacter::CycleWeapon(const FInputActionValue& Value)
 {
-	if (IsDead())
+	const float WheelValue = Value.Get<float>();
+
+	if (FMath::IsNearlyZero(WheelValue) || Weapons.Num() < 2)
 	{
 		return;
 	}
 
-	EquipWeapon(Index);
+	StopFire();
+
+	// Send which way the player scrolled - the server works out the weapon
+	ServerCycleWeapon(WheelValue > 0.f ? 1 : -1);
 }
 
-void ASkirmishCharacter::SelectWeaponOne()
+void ASkirmishCharacter::ServerCycleWeapon_Implementation(int8 Step)
 {
-	StopFire();
-	ServerEquipWeapon(0);
-}
+	if (IsDead() || Weapons.Num() == 0)
+	{
+		return;
+	}
 
-void ASkirmishCharacter::SelectWeaponTwo()
-{
-	StopFire();
-	ServerEquipWeapon(1);
+	// Never trust the client : only ever move one weapon at a time
+	const int32 SafeStep = Step > 0 ? 1 : -1;
+	const int32 CurrentIndex = FMath::Max(Weapons.IndexOfByKey(CurrentWeapon), 0);
+
+	// Wraps around : after the last weapon comes the first
+	const int32 NewIndex = (CurrentIndex + SafeStep + Weapons.Num()) % Weapons.Num();
+
+	EquipWeapon(NewIndex);
 }
 
 void ASkirmishCharacter::Reload()

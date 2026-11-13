@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerState.h"
+#include "SkirmishTypes.h"
 #include "SkirmishPlayerState.generated.h"
 
 class UMaterialInterface;
@@ -27,8 +28,13 @@ public:
     void SetSkinMaterial(UMaterialInterface* NewMaterial) { SkinMaterial = NewMaterial; }
     void SetTeamIndex(int32 NewTeamIndex) { TeamIndex = NewTeamIndex; }
     int32 GetTeamIndex() const { return TeamIndex; }
+    void SetCameraMode(ESkirmishCameraMode NewMode) { CameraMode = NewMode; }
+    ESkirmishCameraMode GetCameraMode() const { return CameraMode; }
 
 protected:
+    /** Only this player's own machine needs this - it is never replicated or sent to the server */
+    ESkirmishCameraMode CameraMode = ESkirmishCameraMode::ThirdPerson;
+
     UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Score")
     int32 Kills = 0;
 

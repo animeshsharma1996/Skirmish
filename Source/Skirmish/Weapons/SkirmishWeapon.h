@@ -40,7 +40,12 @@ public:
     void ConsumeAmmo();
     void AddAmmo(int32 Amount);
     void Fire(const FVector& AimTarget, bool bAiming);
+    void UpdateAimCorrection(const FVector& AimTarget, float DeltaSeconds);
 
+    /** Owner in first person : locks the weapon in front of the camera, like Valorant or CS */
+    void UpdateFirstPersonView(const FTransform& CameraTransform);
+
+    USceneComponent* GetFirstPersonView() const { return FirstPersonView; }
     UAnimMontage* GetFireMontage() const { return FireMontage; }
     bool IsAutomatic() const { return bAutomatic; }
     int32 GetAmmo() const { return Ammo; }
@@ -64,6 +69,13 @@ protected:
 
     UPROPERTY(VisibleAnywhere, Category = "Weapon")
     TObjectPtr<UStaticMeshComponent> Mesh;
+
+    UPROPERTY(VisibleAnywhere, Category = "Weapon")
+    TObjectPtr<USceneComponent> Root;
+
+    /** Moved locally for aiming and first person. Not replicated, unlike the Root's attachment */
+    UPROPERTY(VisibleAnywhere, Category = "Weapon")
+    TObjectPtr<USceneComponent> AimPivot;
 
     UPROPERTY(VisibleAnywhere, Category = "Weapon")
     TObjectPtr<USceneComponent> Muzzle;
@@ -106,6 +118,19 @@ protected:
 
     UPROPERTY(EditDefaultsOnly, Category = "Weapon|Animation")
     TObjectPtr<UAnimMontage> EquipMontage;
+
+    UPROPERTY(VisibleAnywhere, Category = "Weapon")
+    TObjectPtr<USceneComponent> FirstPersonView;
+
+    /** Bigger turns than this fade out - the character is not facing the target */
+    UPROPERTY(EditDefaultsOnly, Category = "Weapon|Aim")
+    float MaxAimCorrection = 20.f;
+
+    /** How quickly the correction fades in and out when it starts or stops being used */
+    UPROPERTY(EditDefaultsOnly, Category = "Weapon|Aim")
+    float AimCorrectionFadeSpeed = 10.f;
+
+    float AimCorrectionAlpha = 0.f;
 
     UPROPERTY(EditDefaultsOnly, Category = "Weapon")
     int32 StartingReserveAmmo = 90;
