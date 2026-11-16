@@ -1,7 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 using UnrealBuildTool;
-
 public class Skirmish : ModuleRules
 {
 	public Skirmish(ReadOnlyTargetRules Target) : base(Target)
@@ -21,27 +20,16 @@ public class Skirmish : ModuleRules
 			"UMG",
 			"Slate",
             "OnlineSubsystem",
-			"OnlineSubsystemUtils"
+			"OnlineSubsystemUtils",
+            "OnlineSubsystemUtils",
+			"Niagara"
         });
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		PublicIncludePaths.AddRange(new string[] 
 		{
-			"Skirmish",
-			"Skirmish/Variant_Platforming",
-			"Skirmish/Variant_Platforming/Animation",
-			"Skirmish/Variant_Combat",
-			"Skirmish/Variant_Combat/AI",
-			"Skirmish/Variant_Combat/Animation",
-			"Skirmish/Variant_Combat/Gameplay",
-			"Skirmish/Variant_Combat/Interfaces",
-			"Skirmish/Variant_Combat/UI",
-			"Skirmish/Variant_SideScrolling",
-			"Skirmish/Variant_SideScrolling/AI",
-			"Skirmish/Variant_SideScrolling/Gameplay",
-			"Skirmish/Variant_SideScrolling/Interfaces",
-			"Skirmish/Variant_SideScrolling/UI"
+			"Skirmish"
 		});
 
 		// Uncomment if you are using Slate UI

@@ -17,6 +17,23 @@ enum class ESkirmishCameraMode : uint8
     FirstPerson
 };
 
+UENUM(BlueprintType)
+enum class ESkirmishHitDirection : uint8
+{
+    Front,
+    Back,
+    Left,
+    Right
+};
+
+UENUM(BlueprintType)
+enum class ESkirmishHitZone : uint8
+{
+    Head,
+    Torso,
+    Legs
+};
+
 /** One game found by a search - what a server browser row shows */
 USTRUCT(BlueprintType)
 struct FSkirmishSessionResult

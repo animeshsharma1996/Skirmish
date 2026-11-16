@@ -11,6 +11,7 @@
 #include "SkirmishCharacter.generated.h"
 
 class USpringArmComponent;
+class USkirmishLagCompensation;
 class UCameraComponent;
 class UInputAction;
 struct FInputActionValue;
@@ -39,6 +40,9 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UCameraComponent> FirstPersonCamera;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Components", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<USkirmishLagCompensation> LagCompensation;
 
 	UFUNCTION(Client, Reliable)
 	void ClientShowHitMarker(const FString& TargetName);
@@ -81,6 +85,7 @@ public:
 protected:
 	bool bDeathHandled = false;
 	ESkirmishCameraMode AppliedCameraMode = ESkirmishCameraMode::ThirdPerson;
+	FRotator RecoilOffset = FRotator::ZeroRotator;
 
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* JumpAction;
@@ -140,6 +145,12 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Health")
 	float MaxHealth = 100.f;
 
+	UPROPERTY(EditDefaultsOnly, Category = "Damage")
+	TArray<FName> HeadBones = { TEXT("neck_01") };
+
+	UPROPERTY(EditDefaultsOnly, Category = "Damage")
+	TArray<FName> LegBones = { TEXT("thigh_l"), TEXT("thigh_r") };
+
 	UPROPERTY(EditDefaultsOnly, Category = "Projectile")
 	float Damage = 20.f;
 
@@ -166,6 +177,34 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Camera")
 	TArray<FName> FirstPersonHiddenBones = { TEXT("head") };
 
+	/** First person : the camera follows this bone, so it sees the same hold as third person */
+	UPROPERTY(EditDefaultsOnly, Category = "Camera")
+	FName FirstPersonCameraBone = TEXT("head");
+
+	/** First person : from the bone to the eyes, turned with the view (X forward, Z up) */
+	UPROPERTY(EditDefaultsOnly, Category = "Camera")
+	FVector FirstPersonEyeOffset = FVector(10.f, 0.f, 8.f);
+
+	void UpdateFirstPersonCamera();
+
+	UPROPERTY(EditDefaultsOnly, Category = "Death")
+	TArray<TObjectPtr<UAnimMontage>> FrontDeathMontages;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Death")
+	TArray<TObjectPtr<UAnimMontage>> BackDeathMontages;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Death")
+	TArray<TObjectPtr<UAnimMontage>> LeftDeathMontages;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Death")
+	TArray<TObjectPtr<UAnimMontage>> RightDeathMontages;
+
+	UPROPERTY(Replicated)
+	ESkirmishHitDirection DeathDirection = ESkirmishHitDirection::Front;
+
+	UPROPERTY(Replicated)
+	uint8 DeathVariant = 0;
+
 	UFUNCTION()
 	void PlayFireAnimation();
 
@@ -173,7 +212,7 @@ protected:
 	void PlayReloadAnimation();
 
 	UFUNCTION(Server, Reliable)
-	void ServerFire(FVector_NetQuantize AimTarget);
+	void ServerFire(FVector_NetQuantize AimTarget, FVector_NetQuantizeNormal ShotDirection, int32 ShotId);
 
 	UFUNCTION(Server, Reliable)
 	void ServerSetAiming(bool bNewAiming);
@@ -215,6 +254,8 @@ protected:
 	void PlayWeaponMontage(UAnimMontage* Montage);
 	void ApplyAimingState();
 	void Fire();
+	void ApplyRecoil(const FRotator& Kick);
+	void RecoverRecoil(float DeltaSeconds);
 	void UpdateLabel();
 	void HandleDeath();
 	void StartFire();
@@ -224,11 +265,15 @@ protected:
 	void EquipWeapon(int32 Index);
 	void ToggleCameraMode();
 	void ApplyCameraMode(ESkirmishCameraMode NewMode);
+	void ChooseDeathAnimation(const AActor* DamageCauser);
 
+	UAnimMontage* GetDeathMontage() const;
 	UCameraComponent* GetActiveCamera() const;
 	FVector GetWeaponAimTarget() const;
 	FVector GetAimTarget() const;
 	FTimerHandle AutoFireTimer;
+	ESkirmishHitZone GetHitZone(FName BoneName) const;
+	bool IsBoneInZone(FName BoneName, const TArray<FName>& ZoneBones) const;
 	
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 	virtual void NotifyControllerChanged() override;

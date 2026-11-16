@@ -82,6 +82,16 @@ void ASkirmishGameMode::PlayerEliminated(APawn* Victim, AController* VictimContr
         KillerState->AddKill();
     }
 
+    if (VictimState)
+    {
+        VictimState->ForceNetUpdate();
+    }
+
+    if (KillerState)
+    {
+        KillerState->ForceNetUpdate();
+    }
+
     ASkirmishGameState* SkirmishGameState = GetGameState<ASkirmishGameState>();
 
     if (IsTeamGame())

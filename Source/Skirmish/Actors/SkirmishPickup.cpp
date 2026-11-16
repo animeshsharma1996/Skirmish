@@ -14,6 +14,7 @@ ASkirmishPickup::ASkirmishPickup()
 	{
 		Mesh->SetSimulatePhysics(true);
 		Mesh->SetCollisionProfileName(TEXT("PhysicsActor"));
+		Mesh->BodyInstance.bGenerateWakeEvents = true;
 		RootComponent = Mesh;
 	}
 
@@ -35,9 +36,17 @@ void ASkirmishPickup::BeginPlay()
 {
 	Super::BeginPlay();
 
-	if (HasAuthority() && IsValid(Trigger))
+	if (HasAuthority())
 	{
-		Trigger->OnComponentBeginOverlap.AddDynamic(this, &ASkirmishPickup::OnTriggerOverlap);
+		if (IsValid(Trigger))
+		{
+			Trigger->OnComponentBeginOverlap.AddDynamic(this, &ASkirmishPickup::OnTriggerOverlap);
+		}
+
+		if (IsValid(Mesh))
+		{
+			Mesh->OnComponentSleep.AddDynamic(this, &ASkirmishPickup::OnMeshSleep);
+		}
 	}
 }
 
@@ -58,4 +67,9 @@ void ASkirmishPickup::OnTriggerOverlap(UPrimitiveComponent* OverlappedComp, AAct
 
 		Destroy();
 	}
+}
+
+void ASkirmishPickup::OnMeshSleep(UPrimitiveComponent* SleepingComponent, FName BoneName)
+{
+	SetNetDormancy(DORM_DormantAll);
 }

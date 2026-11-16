@@ -18,6 +18,7 @@
 #include "Weapons/SkirmishWeapon.h"
 #include "Animation/AnimMontage.h"
 #include "Core/SkirmishPlayerState.h"
+#include "Core/SkirmishLagCompensation.h"
 
 ASkirmishCharacter::ASkirmishCharacter()
 {
@@ -25,6 +26,7 @@ ASkirmishCharacter::ASkirmishCharacter()
 	PrimaryActorTick.TickGroup = TG_PostPhysics;
 
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
+	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_Bullet, ECR_Ignore);
 		
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = true; // Always face where the camera looks, like Fortnite
@@ -79,6 +81,7 @@ ASkirmishCharacter::ASkirmishCharacter()
 	if (CharacterMesh)
 	{
 		CharacterMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+		CharacterMesh->SetCollisionResponseToChannel(ECC_Bullet, ECR_Ignore);
 	}
 
 	VisualMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("VisualMesh"));
@@ -86,15 +89,21 @@ ASkirmishCharacter::ASkirmishCharacter()
 	if (VisualMesh && CharacterMesh)
 	{
 		VisualMesh->SetupAttachment(CharacterMesh);
-		VisualMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		// Bullets hit what players see - the hidden mannequin can be a different shape
+		VisualMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		VisualMesh->SetCollisionObjectType(ECC_Pawn);
+		VisualMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+		VisualMesh->SetCollisionResponseToChannel(ECC_Bullet, ECR_Block);
 		VisualMesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
 	}
+
+	LagCompensation = CreateDefaultSubobject<USkirmishLagCompensation>(TEXT("LagCompensation"));
 
 	FirstPersonCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FirstPersonCamera"));
 
 	if (FirstPersonCamera)
 	{
-		// A steady eye point - only the mouse turns it
+		// Starts at eye height - UpdateFirstPersonCamera moves it to the head every frame
 		FirstPersonCamera->SetupAttachment(RootComponent);
 		FirstPersonCamera->SetRelativeLocation(FVector(0.f, 0.f, BaseEyeHeight));
 		FirstPersonCamera->bUsePawnControlRotation = true;
@@ -140,6 +149,8 @@ void ASkirmishCharacter::Tick(float DeltaSeconds)
 			ApplyCameraMode(CameraMode);
 		}
 
+		UpdateFirstPersonCamera();
+
 		UCameraComponent* ActiveCamera = GetActiveCamera();
 
 		if (ActiveCamera)
@@ -147,11 +158,13 @@ void ASkirmishCharacter::Tick(float DeltaSeconds)
 			const float TargetFOV = bIsAiming ? AimFOV : DefaultFOV;
 			ActiveCamera->SetFieldOfView(FMath::FInterpTo(ActiveCamera->FieldOfView, TargetFOV, DeltaSeconds, FOVInterpSpeed));
 		}
+
+		RecoverRecoil(DeltaSeconds);
 	}
 
-	// Cosmetic, so a dedicated server skips it
-	if (CurrentWeapon && GetNetMode() != NM_DedicatedServer)
+	if (CurrentWeapon && GetNetMode() != NM_DedicatedServer) // Cosmetic, so a dedicated server skips it
 	{
+		// Both views : the weapon stays in the hand and points at the target
 		CurrentWeapon->UpdateAimCorrection(GetWeaponAimTarget(), DeltaSeconds);
 	}
 }
@@ -199,6 +212,8 @@ void ASkirmishCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& O
 	DOREPLIFETIME(ASkirmishCharacter, CurrentWeapon);
 	DOREPLIFETIME_CONDITION(ASkirmishCharacter, bIsAiming, COND_SkipOwner);
 	DOREPLIFETIME_CONDITION(ASkirmishCharacter, Weapons, COND_OwnerOnly);
+	DOREPLIFETIME(ASkirmishCharacter, DeathDirection);
+	DOREPLIFETIME(ASkirmishCharacter, DeathVariant);
 }
 
 void ASkirmishCharacter::Move(const FInputActionValue& Value)
@@ -470,6 +485,21 @@ FVector ASkirmishCharacter::GetAimTarget() const
 	return End;
 }
 
+void ASkirmishCharacter::UpdateFirstPersonCamera()
+{
+	USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
+
+	if (!FirstPersonCamera || !DisplayMesh || !IsFirstPerson())
+	{
+		return;
+	}
+
+	// The eyes ride on the head, so looking down or up shows the same hold as third person.
+	// A hidden bone is scaled to zero, but it still has a location
+	const FVector HeadLocation = DisplayMesh->GetBoneLocation(FirstPersonCameraBone);
+	FirstPersonCamera->SetWorldLocation(HeadLocation + GetControlRotation().RotateVector(FirstPersonEyeOffset));
+}
+
 void ASkirmishCharacter::StartFire()
 {
 	Fire();
@@ -487,10 +517,7 @@ void ASkirmishCharacter::StopFire()
 
 void ASkirmishCharacter::Fire()
 {
-	UE_LOG(LogTemp, Warning, TEXT("[%s] Fire: Weapon=%s Ammo=%d"), HasAuthority() ? TEXT("Server") : TEXT("Client"),
-		*GetNameSafe(CurrentWeapon), CurrentWeapon ? CurrentWeapon->GetAmmo() : -1);
-
-	if (!CurrentWeapon)
+	if (!CurrentWeapon || CurrentWeapon->IsReloading())
 	{
 		return;
 	}
@@ -501,10 +528,21 @@ void ASkirmishCharacter::Fire()
 		return;
 	}
 
-	ServerFire(GetAimTarget());
+	const FRotator RecoilKick = CurrentWeapon->AddRecoil();
+
+	const FVector AimTarget = GetAimTarget();
+	const FVector ShotDirection = CurrentWeapon->GetShotDirection(AimTarget, bIsAiming);
+
+	// Local prediction : the shooter sees the shot straight away. The id lets its bullet report a hit later
+	const int32 ShotId = CurrentWeapon->TakeShotId();
+	CurrentWeapon->PlayLocalFireEffects(ShotDirection, ShotId);
+
+	ServerFire(AimTarget, ShotDirection, ShotId);
+
+	ApplyRecoil(RecoilKick);
 }
 
-void ASkirmishCharacter::ServerFire_Implementation(FVector_NetQuantize AimTarget)
+void ASkirmishCharacter::ServerFire_Implementation(FVector_NetQuantize AimTarget, FVector_NetQuantizeNormal ShotDirection, int32 ShotId)
 {
 	UE_LOG(LogTemp, Warning, TEXT("ServerFire from %s"), *GetName());
 
@@ -533,7 +571,34 @@ void ASkirmishCharacter::ServerFire_Implementation(FVector_NetQuantize AimTarget
 		return;
 	}
 
-	CurrentWeapon->Fire(AimTarget, bIsAiming);
+	CurrentWeapon->Fire(AimTarget, ShotDirection, bIsAiming, ShotId);
+}
+
+void ASkirmishCharacter::ApplyRecoil(const FRotator& Kick)
+{
+	if (!Controller || !CurrentWeapon)
+	{
+		return;
+	}
+
+	// Never climb past the weapon's limit
+	FRotator ClampedKick = Kick;
+	ClampedKick.Pitch = FMath::Clamp(Kick.Pitch, 0.f, FMath::Max(CurrentWeapon->GetMaxRecoilPitch() - RecoilOffset.Pitch, 0.f));
+
+	RecoilOffset += ClampedKick;
+	Controller->SetControlRotation(Controller->GetControlRotation() + ClampedKick);
+}
+
+void ASkirmishCharacter::RecoverRecoil(float DeltaSeconds)
+{
+	if (!Controller || !CurrentWeapon || RecoilOffset.IsNearlyZero(0.01f) || !CurrentWeapon->IsBurstOver())
+	{
+		return;
+	}
+
+	const FRotator Remaining = FMath::RInterpTo(RecoilOffset, FRotator::ZeroRotator, DeltaSeconds, CurrentWeapon->GetRecoilRecoverySpeed());
+	Controller->SetControlRotation(Controller->GetControlRotation() - (RecoilOffset - Remaining));
+	RecoilOffset = Remaining;
 }
 
 void ASkirmishCharacter::ClientShowHitMarker_Implementation(const FString& TargetName)
@@ -572,12 +637,29 @@ float ASkirmishCharacter::TakeDamage(float DamageAmount, FDamageEvent const& Dam
 		return 0.f;
 	}
 
-	const float Applied = Super::TakeDamage(DamageAmount, DamageEvent, EventInstigator, DamageCauser);
+	float ZoneDamage = DamageAmount;
+
+	// Point damage knows which bone was hit
+	if (DamageEvent.IsOfType(FPointDamageEvent::ClassID))
+	{
+		const FPointDamageEvent& PointDamageEvent = static_cast<const FPointDamageEvent&>(DamageEvent);
+		const ESkirmishHitZone HitZone = GetHitZone(PointDamageEvent.HitInfo.BoneName);
+		const ASkirmishWeapon* SkirmishWeapon = Cast<ASkirmishWeapon>(DamageCauser);
+
+		if (SkirmishWeapon)
+		{
+			ZoneDamage *= SkirmishWeapon->GetDamageMultiplier(HitZone);
+		}
+	}
+
+	const float Applied = Super::TakeDamage(ZoneDamage, DamageEvent, EventInstigator, DamageCauser);
+
 	Health = FMath::Clamp(Health - Applied, 0.f, MaxHealth);
 	UpdateLabel();
 
 	if (IsDead())
 	{
+		ChooseDeathAnimation(DamageCauser);
 		HandleDeath(); 
 
 		if (World)
@@ -590,6 +672,42 @@ float ASkirmishCharacter::TakeDamage(float DamageAmount, FDamageEvent const& Dam
 	}
 
 	return Applied;
+}
+
+bool ASkirmishCharacter::IsBoneInZone(FName BoneName, const TArray<FName>& ZoneBones) const
+{
+	const USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
+
+	if (!DisplayMesh)
+	{
+		return false;
+	}
+
+	for (const FName& ZoneBone : ZoneBones)
+	{
+		// The zone's top bone, or any bone under it
+		if (BoneName == ZoneBone || DisplayMesh->BoneIsChildOf(BoneName, ZoneBone))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+ESkirmishHitZone ASkirmishCharacter::GetHitZone(FName BoneName) const
+{
+	if (IsBoneInZone(BoneName, HeadBones))
+	{
+		return ESkirmishHitZone::Head;
+	}
+
+	if (IsBoneInZone(BoneName, LegBones))
+	{
+		return ESkirmishHitZone::Legs;
+	}
+
+	return ESkirmishHitZone::Torso;
 }
 
 void ASkirmishCharacter::ReceivePickup(int32 HealthAmount, int32 AmmoAmount)
@@ -845,18 +963,66 @@ void ASkirmishCharacter::HandleDeath()
 		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	}
 
-	USkeletalMeshComponent* DisplayMesh = GetDisplayMesh();
-
-	if (DisplayMesh && GetNetMode() != NM_DedicatedServer)
+	if (GetNetMode() != NM_DedicatedServer)
 	{
-		DisplayMesh->SetCollisionProfileName(TEXT("Ragdoll"));
-		DisplayMesh->SetSimulatePhysics(true);
+		PlayWeaponMontage(GetDeathMontage());
 	}
 
 	if (StatusLabel)
 	{
 		StatusLabel->SetVisibility(false);
 	}
+}
+
+void ASkirmishCharacter::ChooseDeathAnimation(const AActor* DamageCauser)
+{
+	DeathDirection = ESkirmishHitDirection::Front;
+
+	if (DamageCauser)
+	{
+		const FVector ToCauser = (DamageCauser->GetActorLocation() - GetActorLocation()).GetSafeNormal2D();
+		const float Forward = FVector::DotProduct(GetActorForwardVector(), ToCauser);
+		const float Right = FVector::DotProduct(GetActorRightVector(), ToCauser);
+
+		if (FMath::Abs(Forward) >= FMath::Abs(Right))
+		{
+			DeathDirection = Forward >= 0.f ? ESkirmishHitDirection::Front : ESkirmishHitDirection::Back;
+		}
+		else
+		{
+			DeathDirection = Right >= 0.f ? ESkirmishHitDirection::Right : ESkirmishHitDirection::Left;
+		}
+	}
+
+	// Picks one of the montages for that direction
+	DeathVariant = static_cast<uint8>(FMath::RandRange(0, 255));
+}
+
+UAnimMontage* ASkirmishCharacter::GetDeathMontage() const
+{
+	const TArray<TObjectPtr<UAnimMontage>>* Montages = &FrontDeathMontages;
+
+	switch (DeathDirection)
+	{
+		case ESkirmishHitDirection::Back:
+			Montages = &BackDeathMontages;
+			break;
+		case ESkirmishHitDirection::Left:
+			Montages = &LeftDeathMontages;
+			break;
+		case ESkirmishHitDirection::Right:
+			Montages = &RightDeathMontages;
+			break;
+		default:
+			break;
+	}
+
+	if (Montages->Num() == 0)
+	{
+		return nullptr;
+	}
+
+	return (*Montages)[DeathVariant % Montages->Num()];
 }
 
 void ASkirmishCharacter::Destroyed()
