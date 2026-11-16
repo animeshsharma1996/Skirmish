@@ -74,7 +74,7 @@ public:
 	void Heal(int32 Amount);
 	bool IsDead() const { return Health <= 0.f; }
 	void GiveWeapon(TSubclassOf<ASkirmishWeapon> WeaponClass);
-	bool IsFirstPerson() const { return GetCameraMode() == ESkirmishCameraMode::FirstPerson; }
+	virtual bool IsFirstPerson() const override { return GetCameraMode() == ESkirmishCameraMode::FirstPerson; }
 	ESkirmishCameraMode GetCameraMode() const;
 
 	USkeletalMeshComponent* GetDisplayMesh() const;

@@ -17,22 +17,23 @@ ASkirmishBullet::ASkirmishBullet()
     // Every machine simulates its own bullet - nothing replicates
     bReplicates = false;
 
-    Collision = CreateDefaultSubobject<UCapsuleComponent>(TEXT("Collision"));
+    // A new name, so Blueprints made with the old sphere get a fresh capsule
+    CapsuleCollision = CreateDefaultSubobject<UCapsuleComponent>(TEXT("CapsuleCollision"));
 
-    if (Collision)
+    if (CapsuleCollision)
     {
         // A thin capsule the size of a bullet - its length runs along local Z
-        Collision->InitCapsuleSize(0.5f, 2.f);
-        Collision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-        Collision->SetCollisionObjectType(ECC_Bullet);
-        Collision->SetCollisionResponseToAllChannels(ECR_Block);
-        Collision->SetCollisionResponseToChannel(ECC_Bullet, ECR_Ignore);
+        CapsuleCollision->InitCapsuleSize(0.5f, 2.f);
+        CapsuleCollision->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+        CapsuleCollision->SetCollisionObjectType(ECC_Bullet);
+        CapsuleCollision->SetCollisionResponseToAllChannels(ECR_Block);
+        CapsuleCollision->SetCollisionResponseToChannel(ECC_Bullet, ECR_Ignore);
 
         // Do not hit other bullets, pickups or physics objects
-        Collision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
-        Collision->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Ignore);
-        Collision->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
-        RootComponent = Collision;
+        CapsuleCollision->SetCollisionResponseToChannel(ECC_WorldDynamic, ECR_Ignore);
+        CapsuleCollision->SetCollisionResponseToChannel(ECC_PhysicsBody, ECR_Ignore);
+        CapsuleCollision->SetCollisionResponseToChannel(ECC_Camera, ECR_Ignore);
+        RootComponent = CapsuleCollision;
     }
 
     Mesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("Mesh"));
@@ -64,9 +65,9 @@ void ASkirmishBullet::BeginPlay()
 {
     Super::BeginPlay();
 
-    if (Collision)
+    if (CapsuleCollision)
     {
-        Collision->OnComponentHit.AddDynamic(this, &ASkirmishBullet::OnHit);
+        CapsuleCollision->OnComponentHit.AddDynamic(this, &ASkirmishBullet::OnHit);
     }
 }
 
@@ -80,12 +81,12 @@ void ASkirmishBullet::Fire(const FVector& Start, const FVector& Direction, AActo
     const FRotator BulletRotation = FRotationMatrix::MakeFromZ(Direction).Rotator();
     SetActorLocationAndRotation(Start, BulletRotation, false, nullptr, ETeleportType::TeleportPhysics);
 
-    if (Collision)
+    if (CapsuleCollision)
     {
         // Never hit the shooter or their weapon - they may be different players each time
-        Collision->ClearMoveIgnoreActors();
-        Collision->IgnoreActorWhenMoving(InInstigator, true);
-        Collision->IgnoreActorWhenMoving(InOwner, true);
+        CapsuleCollision->ClearMoveIgnoreActors();
+        CapsuleCollision->IgnoreActorWhenMoving(InInstigator, true);
+        CapsuleCollision->IgnoreActorWhenMoving(InOwner, true);
     }
 
     SetActorHiddenInGame(false);
@@ -99,7 +100,7 @@ void ASkirmishBullet::Fire(const FVector& Start, const FVector& Direction, AActo
     if (Movement)
     {
         // A hit stops the movement and clears its component, so set both again
-        Movement->SetUpdatedComponent(Collision);
+        Movement->SetUpdatedComponent(CapsuleCollision);
         Movement->Velocity = Direction.GetSafeNormal() * Movement->InitialSpeed;
         Movement->Activate(true);
     }

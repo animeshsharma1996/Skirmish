@@ -44,6 +44,7 @@ void USkirmishAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
     {
         bIsAiming = WeaponHolder->IsAiming();
         bHasWeapon = WeaponHolder->GetCurrentWeapon() != nullptr;
+        bIsFirstPerson = WeaponHolder->IsFirstPerson();
         UpdateWeaponAnimation(WeaponHolder);
         UpdateHandIK(WeaponHolder, DeltaSeconds);
     }

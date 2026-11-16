@@ -31,7 +31,7 @@ protected:
     virtual void BeginPlay() override;
 
     UPROPERTY(VisibleAnywhere, Category = "Bullet")
-    TObjectPtr<UCapsuleComponent> Collision;
+    TObjectPtr<UCapsuleComponent> CapsuleCollision;
 
     UPROPERTY(VisibleAnywhere, Category = "Bullet")
     TObjectPtr<UStaticMeshComponent> Mesh;

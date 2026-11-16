@@ -46,6 +46,10 @@ protected:
     UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
     bool bHasWeapon = false;
 
+    /** In first person the upper body holds still and only the legs move, like Valorant - on every screen */
+    UPROPERTY(BlueprintReadOnly, Category = "Skirmish")
+    bool bIsFirstPerson = false;
+
     UPROPERTY(EditDefaultsOnly, Category = "Weapon Animation")
     TObjectPtr<UBlendSpace> DefaultMovementBlendSpace; /** Used when the weapon does not set its own */
 
@@ -57,9 +61,6 @@ protected:
 
     UPROPERTY(BlueprintReadOnly, Category = "Weapon Animation")
     TObjectPtr<UBlendSpace> AimOffset;
-
-    UPROPERTY(EditDefaultsOnly, Category = "Hand IK")
-    FName RightHandBone = TEXT("hand_r"); /** The bone that holds the weapon - change it for skeletons with different names */
 
     UPROPERTY(BlueprintReadOnly, Category = "Hand IK")
     FTransform LeftHandTransform; /** Where the left hand goes, relative to the right hand */

@@ -14,6 +14,9 @@ void ASkirmishPlayerState::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>&
     DOREPLIFETIME(ASkirmishPlayerState, Deaths);
     DOREPLIFETIME(ASkirmishPlayerState, SkinMaterial);
     DOREPLIFETIME(ASkirmishPlayerState, TeamIndex);
+
+    // The owner already set it locally - only everyone else needs it
+    DOREPLIFETIME_CONDITION(ASkirmishPlayerState, CameraMode, COND_SkipOwner);
 }
 
 void ASkirmishPlayerState::SetReady(bool bNewReady)
@@ -53,4 +56,27 @@ void ASkirmishPlayerState::HandleReadyChanged()
     {
         SkirmishEvent->OnLobbyChanged.Broadcast();
     }
+}
+
+void ASkirmishPlayerState::SetCameraMode(ESkirmishCameraMode NewMode)
+{
+    // Your own screen switches straight away - no waiting for the server
+    CameraMode = NewMode;
+
+    if (!HasAuthority())
+    {
+        ServerSetCameraMode(NewMode);
+    }
+    else
+    {
+        ForceNetUpdate();
+    }
+}
+
+void ASkirmishPlayerState::ServerSetCameraMode_Implementation(ESkirmishCameraMode NewMode)
+{
+    CameraMode = NewMode;
+
+    // Player States update rarely - send this one now
+    ForceNetUpdate();
 }

@@ -28,12 +28,16 @@ public:
     void SetSkinMaterial(UMaterialInterface* NewMaterial) { SkinMaterial = NewMaterial; }
     void SetTeamIndex(int32 NewTeamIndex) { TeamIndex = NewTeamIndex; }
     int32 GetTeamIndex() const { return TeamIndex; }
-    void SetCameraMode(ESkirmishCameraMode NewMode) { CameraMode = NewMode; }
+    void SetCameraMode(ESkirmishCameraMode NewMode);
     ESkirmishCameraMode GetCameraMode() const { return CameraMode; }
 
 protected:
-    /** Only this player's own machine needs this - it is never replicated or sent to the server */
+    /** Set locally straight away, then sent to the server so other players see the right pose */
+    UPROPERTY(Replicated)
     ESkirmishCameraMode CameraMode = ESkirmishCameraMode::ThirdPerson;
+
+    UFUNCTION(Server, Reliable)
+    void ServerSetCameraMode(ESkirmishCameraMode NewMode);
 
     UPROPERTY(Replicated, VisibleAnywhere, BlueprintReadOnly, Category = "Score")
     int32 Kills = 0;
