@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Actor.h"
+#include "../Core/SkirmishTypes.h"
 #include "SkirmishWeapon.generated.h"
 
 #define ECC_Weapon ECC_GameTraceChannel1

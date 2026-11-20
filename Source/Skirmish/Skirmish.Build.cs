@@ -19,7 +19,8 @@ public class Skirmish : ModuleRules
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate",
-            "OnlineSubsystem",
+			"SlateCore",
+			"OnlineSubsystem",
 			"OnlineSubsystemUtils",
             "OnlineSubsystemUtils",
 			"Niagara"

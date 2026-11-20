@@ -10,6 +10,9 @@
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "Core/SkirmishPlayerState.h"
 #include "Core/SkirmishLobbyGameMode.h"
+#include "EnhancedInputComponent.h"
+#include "Core/SkirmishPlayerSettings.h"
+#include "UI/SkirmishHUD.h"
 
 void ASkirmishPlayerController::BeginPlay()
 {
@@ -31,6 +34,8 @@ void ASkirmishPlayerController::BeginPlay()
 			UE_LOG(LogSkirmish, Error, TEXT("Could not spawn mobile controls widget."));
 		}
 	}
+
+	ApplyStartCameraMode();
 }
 
 void ASkirmishPlayerController::SetupInputComponent()
@@ -57,6 +62,50 @@ void ASkirmishPlayerController::SetupInputComponent()
 				}
 			}
 		}
+	}
+
+	UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent);
+
+	if (EnhancedInputComponent && MenuAction)
+	{
+		EnhancedInputComponent->BindAction(MenuAction, ETriggerEvent::Started, this, &ASkirmishPlayerController::ToggleMenu);
+	}
+}
+
+void ASkirmishPlayerController::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+
+	ApplyStartCameraMode();
+}
+
+void ASkirmishPlayerController::ApplyStartCameraMode()
+{
+	if (!IsLocalController())
+	{
+		return;
+	}
+
+	ASkirmishPlayerState* SkirmishPlayerState = GetPlayerState<ASkirmishPlayerState>();
+	UGameInstance* GameInstance = GetGameInstance();
+	USkirmishPlayerSettings* SkirmishPlayerSettings = GameInstance ? GameInstance->GetSubsystem<USkirmishPlayerSettings>() : nullptr;
+
+	if (!SkirmishPlayerState || !SkirmishPlayerSettings)
+	{
+		return;
+	}
+
+	// A new Player State starts in the view picked in the main menu
+	SkirmishPlayerState->SetCameraMode(SkirmishPlayerSettings->GetStartCameraMode());
+}
+
+void ASkirmishPlayerController::ToggleMenu()
+{
+	ASkirmishHUD* SkirmishHUD = GetHUD<ASkirmishHUD>();
+
+	if (SkirmishHUD)
+	{
+		SkirmishHUD->TogglePauseMenu();
 	}
 }
 

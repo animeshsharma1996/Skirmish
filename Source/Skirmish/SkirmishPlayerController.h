@@ -9,6 +9,7 @@
 class UInputMappingContext;
 class UUserWidget;
 class USkirmishSessionSubsystem;
+class UInputAction;
 
 UCLASS(abstract)
 class ASkirmishPlayerController : public APlayerController
@@ -47,9 +48,6 @@ protected:
 	void JoinGame(int32 Index);
 
 	UFUNCTION(Exec)
-	void Ready();
-
-	UFUNCTION(Exec)
 	void QuickMatch(const FString& GameTypeName);
 
 	UFUNCTION(Exec)
@@ -60,7 +58,20 @@ protected:
 
 	USkirmishSessionSubsystem* GetSkirmishSession() const;
 
+	UPROPERTY(EditAnywhere, Category = "Input")
+	TObjectPtr<UInputAction> MenuAction;
+
+	void ToggleMenu();
+	void ApplyStartCameraMode();
+
 	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 	bool ShouldUseTouchControls() const;
+
+public:
+	/** Lobby only : toggles this player's Ready */
+	UFUNCTION(Exec)
+	void Ready();
+
+	virtual void OnRep_PlayerState() override;
 };

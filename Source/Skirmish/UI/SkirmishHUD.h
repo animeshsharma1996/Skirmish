@@ -5,11 +5,15 @@
 #include "SkirmishHUD.generated.h"
 
 class USkirmishHUDWidget;
+class USkirmishPauseMenuWidget;
 
 UCLASS()
 class SKIRMISH_API ASkirmishHUD : public AHUD
 {
     GENERATED_BODY()
+
+public:
+    void TogglePauseMenu();
 
 protected:
     virtual void BeginPlay() override;
@@ -19,4 +23,13 @@ protected:
 
     UPROPERTY()
     TObjectPtr<USkirmishHUDWidget> HUDWidget;
+
+    UPROPERTY(EditDefaultsOnly, Category = "UI")
+    TSubclassOf<USkirmishPauseMenuWidget> PauseMenuClass;
+
+    UPROPERTY()
+    TObjectPtr<USkirmishPauseMenuWidget> PauseMenu;
+
+    UFUNCTION()
+    void ClosePauseMenu();
 };
